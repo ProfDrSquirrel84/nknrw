@@ -8,135 +8,123 @@ from streamlit_folium import st_folium
 
 st.set_page_config(page_title="NRW Kommunen-Monitoring", layout="wide")
 
-# 1. Daten einlesen & AGS formatieren
 DATA_PATH = Path(__file__).resolve().parent / "daten.csv"
-
 
 @st.cache_data
 def load_data():
-    df = pd.read_csv(DATA_PATH, sep=";", dtype=str)
-    # Bereinigung: Führende Nullen auf 8 Stellen auffüllen
-    df["AGS"] = df["AGS"].str.extract(r"(\d+)")[0].str.zfill(8)
+    if not DATA_PATH.is_file():
+        st.error(f"Datei 'daten.csv' nicht gefunden unter: {DATA_PATH}")
+        st.stop()
+    
+    # Trennzeichen automatisch erkennen (Semikolon, Tab oder Komma)
+    df = pd.read_csv(DATA_PATH, sep=None, engine="python", dtype=str)
+    
+    # Spaltennamen bereinigen: Führende/nachlaufende Leerzeichen entfernen
+    df.columns = df.columns.str.strip()
+    
+    # Finde die Spalte, die 'AGS' enthält (z. B. 'AGS (8-stellig)' oder 'AGS')
+    ags_col = next((c for c in df.columns if "AGS" in c.upper()), None)
+    if not ags_col:
+        st.error(f"Keine AGS-Spalte gefunden! Vorhandene Spalten: {list(df.columns)}")
+        st.stop()
+        
+    df = df.rename(columns={ags_col: "AGS"})
+    
+    # Bereinigung: Reine Ziffern extrahieren und auf 8 Stellen mit führenden Nullen bringen
+    df["AGS"] = df["AGS"].astype(str).str.extract(r"(\d+)")[0]
+    df = df.dropna(subset=["AGS"])
+    df["AGS"] = df["AGS"].str.zfill(8)
     return df
 
-
-# 2. GeoJSON der NRW-Gemeindegrenzen cachen
 @st.cache_data
 def load_geojson():
+    # Saubere NRW-Gemeindegrenzen mit amtlichem AGS
     url = "https://raw.githubusercontent.com/isellsoap/deutschlandGeoJSON/main/4_gemeinden/4_nordrhein-westfalen.geo.json"
-    r = requests.get(url, timeout=20)
+    r = requests.get(url, timeout=30)
     return r.json()
-
 
 df = load_data()
 geojson_data = load_geojson()
 
-st.title("🗺️ NRW-Kommunen: Projektübersicht & Einstufung")
+st.title("🗺️ NRW-Kommunen: Monitoring & Strategieprozesse")
 
-# Sidebar: Dynamische Auswahl der Variable für die Einfärbung/Hervorhebung
-st.sidebar.header("Filter & Visualisierung")
+# Spaltenauswahl für die farbliche Kategorisierung
+ignore_cols = ["AGS", "ARS", "ARS (12-stellig)", "Bevölkerung", "Bevoelkerung"]
+available_vars = [c for c in df.columns if c not in ignore_cols]
 
-variable_options = {
-    "Vorerfahrung": "Einstufung Vorerfahrung",
-    "Angebot": "Beantragtes Angebot",
-    "Status Beschluss": "Status Beschluss",
-    "Einstiegszeitpunkt": "Bevorzugter Einstiegszeitpunkt (Standard)",
-    "Regierungsbezirk": "Regierungsbezirk",
-    "Partei": "Partei BM/OB/LR",
-}
+selected_var = st.sidebar.selectbox("Färbung nach Variable:", available_vars, index=0)
 
-# Falls abweichende Spaltenbezeichner vorliegen, anpassen
-col_name_mapping = {
-    "Vorerfahrung": "Vorerfahrung",
-    "Angebot": "Angebot",
-    "Status Beschluss": "Status_Beschluss",
-    "Einstiegszeitpunkt": "Einstiegszeitpunkt",
-    "Regierungsbezirk": "Regierungsbezirk",
-    "Partei": "Partei",
-}
-
-selected_var_label = st.sidebar.selectbox("Färbung nach Variable:", list(col_name_mapping.keys()))
-active_col = col_name_mapping[selected_var_label]
-
-# Farbpalette für Kategorien
+# Farbpalette erzeugen
+unique_vals = sorted(df[selected_var].dropna().unique().tolist())
 PALETTE = [
-    "#E5243B",
-    "#4C9F38",
-    "#FD9D24",
-    "#00689D",
-    "#DD1367",
-    "#26BDE2",
-    "#FCC30B",
-    "#A21942",
-    "#FD6925",
-    "#3F7E44",
+    "#E5243B", "#4C9F38", "#FD9D24", "#00689D", "#DD1367", 
+    "#26BDE2", "#FCC30B", "#A21942", "#FD6925", "#3F7E44"
 ]
-unique_vals = sorted(df[active_col].dropna().unique().tolist())
 color_map = {val: PALETTE[i % len(PALETTE)] for i, val in enumerate(unique_vals)}
 
-# Dictionary für schnellen O(1)-Lookup nach AGS (letzten Status nehmen bei Duplikaten)
-df_lookup = df.drop_duplicates(subset=["AGS"], keep="last").set_index("AGS")
+# Schnelles Mapping via Dictionary: AGS -> Attributwert
+lookup_dict = dict(zip(df["AGS"], df[selected_var]))
 
-# 3. Folium Karte initialisieren (Zentrum NRW: ca. 51.45, 7.50)
+# Karte initialisieren
 m = folium.Map(location=[51.45, 7.50], zoom_start=8, tiles="CartoDB positron")
 
+def get_feature_ags(props):
+    """Ermittelt den 8-stelligen AGS unabhängig vom Attributnamen im GeoJSON."""
+    for key in ["AGS", "id", "AGS_8", "cca_2", "schluessel"]:
+        if key in props and props[key]:
+            clean = "".join(filter(str.isdigit, str(props[key])))
+            if clean:
+                return clean.zfill(8)
+    return ""
 
-# Style-Funktion für GeoJSON-Polygone
 def style_fn(feature):
-    # Der AGS im GeoJSON liegt typischerweise unter properties.AGS oder properties.id
     props = feature.get("properties", {})
-    ags_geo = str(props.get("AGS") or props.get("id") or "").zfill(8)
-
-    if ags_geo in df_lookup.index:
-        val = df_lookup.loc[ags_geo, active_col]
-        color = color_map.get(val, "#FD6925")
+    ags_geo = get_feature_ags(props)
+    
+    if ags_geo in lookup_dict:
+        val = lookup_dict[ags_geo]
+        color = color_map.get(val, "#3182ce")
         return {
             "fillColor": color,
             "color": "#1A202C",
             "weight": 1.5,
             "fillOpacity": 0.85,
         }
-    else:
-        # Nicht in der Tabelle enthaltene NRW-Gemeinden
-        return {
-            "fillColor": "#EDF2F7",
-            "color": "#CBD5E0",
-            "weight": 0.5,
-            "fillOpacity": 0.3,
-        }
+    return {
+        "fillColor": "#EDF2F7",
+        "color": "#CBD5E0",
+        "weight": 0.5,
+        "fillOpacity": 0.25,
+    }
 
-
-# Interaktive GeoJSON-Ebene hinzufügen
 folium.GeoJson(
     geojson_data,
-    name="NRW-Kommunen",
+    name="NRW-Gemeinden",
     style_function=style_fn,
     tooltip=folium.GeoJsonTooltip(
-        fields=["GEN"],  # Im Standard-GeoJSON steht 'GEN' für den Gemeindenamen
+        fields=["GEN"],
         aliases=["Kommune:"],
-        localize=True,
-    ),
+        localize=True
+    )
 ).add_to(m)
 
-# Layout: Karte links, Legende & Details rechts
-c_map, c_details = st.columns([3, 1])
+# Layout
+col_map, col_info = st.columns([3, 1])
 
-with c_map:
+with col_map:
     st_folium(m, width="100%", height=650)
 
-with c_details:
+with col_info:
     st.subheader("Legende")
     for val, color in color_map.items():
         st.markdown(
             f'<div style="display:flex; align-items:center; margin-bottom:6px;">'
-            f'<div style="background-color:{color}; width:20px; height:20px; border-radius:3px; margin-right:8px;"></div>'
-            f'<span>{val}</span></div>',
-            unsafe_allow_html=True,
+            f'<div style="background-color:{color}; width:18px; height:18px; border-radius:3px; margin-right:8px;"></div>'
+            f'<span style="font-size:14px;">{val}</span></div>',
+            unsafe_allow_html=True
         )
-
     st.divider()
-    st.metric("Erfasste Kommunen", len(df["Kommune"].unique()))
+    st.metric("Erfasste Datensätze", len(df))
 
-# Tabelle anzeigen
-with st.expander("Vollständige Datentabelle anzeigen"):
+with st.expander("Tabellendaten anzeigen"):
     st.dataframe(df, use_container_width=True)
