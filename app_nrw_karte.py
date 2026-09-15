@@ -34,10 +34,11 @@ def load_data():
         )
 
     df.columns = df.columns.astype(str).str.strip()
+
     ags_col = next((c for c in df.columns if "AGS" in c.upper()), None)
     if not ags_col:
         st.error(
-            f"Keine AGS-Spalte gefunden! Vorhanden: {list(df.columns)}"
+            f"Keine AGS-Spalte gefunden! Vorhandene Spalten: {list(df.columns)}"
         )
         st.stop()
 
@@ -76,7 +77,7 @@ geojson_data = load_geojson()
 
 st.title("🗺️ NRW-Kommunen: Projektübersicht & Einstufung")
 
-# Sidebar
+# Spaltenauswahl für Einfärbung
 ignore_patterns = [
     "AGS",
     "ARS",
@@ -111,41 +112,49 @@ PALETTE = [
 ]
 color_map = {val: PALETTE[i % len(PALETTE)] for i, val in enumerate(unique_vals)}
 
-# Direktes Lookup: 8-stelliger AGS -> Wert (inkl. 5-stelligem Kreisfallback)
-lookup_dict = {}
-for _, row in df.iterrows():
-    val = row[selected_var]
-    ags = str(row["AGS"]).strip()
-    lookup_dict[ags] = val
-    if len(ags) >= 5:
-        lookup_dict[ags[:5]] = val
+# Exaktes Lookup ausschließlich über den 8-stelligen AGS (kein Kreis-Fallback)
+lookup_dict = dict(zip(df["AGS"], df[selected_var]))
 
 
 def style_fn(feature):
     props = feature.get("properties", {})
-    ags = str(props.get("AGS", "")).strip()
+    ags = str(props.get("AGS", "")).strip().zfill(8)
 
-    # Match auf 8 Ziffern oder 5 Ziffern (Kreis)
-    val = lookup_dict.get(ags) or lookup_dict.get(ags[:5])
-
-    if val is not None:
+    # Nur exakt erfasste Kommunen einfärben
+    if ags in lookup_dict:
+        val = lookup_dict[ags]
         return {
             "fillColor": color_map.get(val, "#3182ce"),
             "color": "#1A202C",
             "weight": 1.6,
             "fillOpacity": 0.85,
         }
+
+    # Transparenter Landes-Hintergrund für nicht teilnehmende Kommunen
     return {
-        "fillColor": "#F7FAFC",
-        "color": "#CBD5E0",
+        "fillColor": "#F8FAFC",
+        "color": "#94A3B8",
         "weight": 0.4,
-        "fillOpacity": 0.15,
+        "fillOpacity": 0.1,
     }
 
 
 m = folium.Map(location=[51.45, 7.50], zoom_start=8, tiles="OpenStreetMap")
 
-tooltip = folium.GeoJsonTooltip(fields=["GEN"], aliases=["Kommune:"])
+# Tooltip-Name ermitteln
+sample_props = (
+    geojson_data["features"][0].get("properties", {})
+    if geojson_data.get("features")
+    else {}
+)
+tooltip_field = next(
+    (k for k in ["GEN", "GN", "NAME"] if k in sample_props), None
+)
+tooltip = (
+    folium.GeoJsonTooltip(fields=[tooltip_field], aliases=["Kommune:"])
+    if tooltip_field
+    else None
+)
 
 folium.GeoJson(
     geojson_data,
@@ -154,7 +163,7 @@ folium.GeoJson(
     tooltip=tooltip,
 ).add_to(m)
 
-# Layout
+# 2-Spalten-Layout
 col_map, col_legend = st.columns([3, 1])
 
 with col_map:
