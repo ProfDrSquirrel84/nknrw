@@ -37,9 +37,7 @@ def load_data():
 
     ags_col = next((c for c in df.columns if "AGS" in c.upper()), None)
     if not ags_col:
-        st.error(
-            f"Keine AGS-Spalte gefunden! Vorhandene Spalten: {list(df.columns)}"
-        )
+        st.error(f"Keine AGS-Spalte gefunden! Vorhanden: {list(df.columns)}")
         st.stop()
 
     df = df.rename(columns={ags_col: "AGS"})
@@ -87,17 +85,29 @@ ignore_patterns = [
     "DETAILS",
 ]
 available_vars = [
-    c
-    for c in df.columns
-    if not any(p in c.upper() for p in ignore_patterns)
+    c for c in df.columns if not any(p in c.upper() for p in ignore_patterns)
 ]
 if not available_vars:
     available_vars = [c for c in df.columns if c not in ["AGS", "Kommune"]]
 
-selected_var = st.sidebar.selectbox("Färbung nach Variable:", available_vars, index=0)
+selected_var = st.sidebar.selectbox("Variable auswählen:", available_vars, index=0)
 
-# Kategoriale Farbpalette
-unique_vals = sorted(df[selected_var].dropna().unique().tolist())
+# Häufigkeiten der Ausprägungen berechnen
+val_counts = df[selected_var].dropna().value_counts().to_dict()
+all_unique_vals = sorted(val_counts.keys())
+
+# Multiselect-Filter mit dynamischer Fallzahl-Anzeige
+selected_values = st.sidebar.multiselect(
+    "Ausprägungen filtern:",
+    options=all_unique_vals,
+    default=all_unique_vals,
+    format_func=lambda x: f"{x} ({val_counts.get(x, 0)} Fälle)",
+)
+
+# DataFrame nach aktiver Filterauswahl eingrenzen
+df_filtered = df[df[selected_var].isin(selected_values)].copy()
+
+# Kategoriale Farbpalette (bezogen auf alle Ausprägungen für Farbkonsistenz)
 PALETTE = [
     "#E5243B",
     "#4C9F38",
@@ -110,17 +120,17 @@ PALETTE = [
     "#FD6925",
     "#3F7E44",
 ]
-color_map = {val: PALETTE[i % len(PALETTE)] for i, val in enumerate(unique_vals)}
+color_map = {val: PALETTE[i % len(PALETTE)] for i, val in enumerate(all_unique_vals)}
 
-# Exaktes Lookup ausschließlich über den 8-stelligen AGS (kein Kreis-Fallback)
-lookup_dict = dict(zip(df["AGS"], df[selected_var]))
+# Lookup ausschließlich für aktiv gefilterte Datensätze
+lookup_dict = dict(zip(df_filtered["AGS"], df_filtered[selected_var]))
 
 
 def style_fn(feature):
     props = feature.get("properties", {})
     ags = str(props.get("AGS", "")).strip().zfill(8)
 
-    # Nur exakt erfasste Kommunen einfärben
+    # Nur Kommunen einfärben, die dem aktiven Filter entsprechen
     if ags in lookup_dict:
         val = lookup_dict[ags]
         return {
@@ -130,7 +140,7 @@ def style_fn(feature):
             "fillOpacity": 0.85,
         }
 
-    # Transparenter Landes-Hintergrund für nicht teilnehmende Kommunen
+    # Transparenter Landes-Hintergrund für nicht gefilterte/nicht teilnehmende Kommunen
     return {
         "fillColor": "#F8FAFC",
         "color": "#94A3B8",
@@ -141,15 +151,12 @@ def style_fn(feature):
 
 m = folium.Map(location=[51.45, 7.50], zoom_start=8, tiles="OpenStreetMap")
 
-# Tooltip-Name ermitteln
 sample_props = (
     geojson_data["features"][0].get("properties", {})
     if geojson_data.get("features")
     else {}
 )
-tooltip_field = next(
-    (k for k in ["GEN", "GN", "NAME"] if k in sample_props), None
-)
+tooltip_field = next((k for k in ["GEN", "GN", "NAME"] if k in sample_props), None)
 tooltip = (
     folium.GeoJsonTooltip(fields=[tooltip_field], aliases=["Kommune:"])
     if tooltip_field
@@ -171,16 +178,19 @@ with col_map:
 
 with col_legend:
     st.subheader("Legende")
-    for val, color in color_map.items():
+    for val in selected_values:
+        color = color_map[val]
+        count = val_counts.get(val, 0)
         st.markdown(
             f'<div style="display:flex; align-items:center; margin-bottom:8px;">'
             f'<div style="background-color:{color}; width:18px; height:18px; border-radius:3px; margin-right:8px; flex-shrink:0;"></div>'
-            f'<span style="font-size:14px; line-height:1.2;">{val}</span></div>',
+            f'<span style="font-size:14px; line-height:1.2;"><b>{val}</b>: {count} Fälle</span></div>',
             unsafe_allow_html=True,
         )
     st.divider()
-    st.metric("Erfasste Kommunen", len(df["Kommune"].unique()))
-    st.metric("Gesamtanträge", len(df))
+    st.metric("Ausgewählte Kommunen", len(df_filtered["Kommune"].unique()))
+    st.metric("Gefilterte Anträge", len(df_filtered))
+    st.caption(f"Gesamtbestand in Datei: {len(df)} Fälle")
 
-with st.expander("Tabellarische Übersicht"):
-    st.dataframe(df, use_container_width=True)
+with st.expander("Tabellarische Übersicht (Gefiltert)"):
+    st.dataframe(df_filtered, use_container_width=True)
