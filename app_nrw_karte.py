@@ -18,37 +18,45 @@ def load_data():
         st.error(f"Datei 'daten.csv' nicht gefunden: {DATA_PATH}")
         st.stop()
 
-    # Robuste Trennzeichen-Erkennung: Erst Semikolon, dann Tab/Komma via Python-Engine
+    # Trennzeichen ermitteln (Semikolon priorisiert, Fallback auf automatische Erkennung)
     try:
-        df = pd.read_csv(DATA_PATH, sep=";", dtype=str)
+        df = pd.read_csv(DATA_PATH, sep=";", dtype=str, encoding="utf-8")
         if df.shape[1] == 1:
-            df = pd.read_csv(DATA_PATH, sep=None, engine="python", dtype=str)
+            df = pd.read_csv(
+                DATA_PATH, sep=None, engine="python", dtype=str, encoding="utf-8"
+            )
     except Exception:
-        df = pd.read_csv(DATA_PATH, sep=None, engine="python", dtype=str)
+        df = pd.read_csv(
+            DATA_PATH, sep=None, engine="python", dtype=str, encoding="utf-8"
+        )
 
-    # Spaltennamen von Whitespace befreien
-    df.columns = df.columns.str.strip()
+    # Spaltennamen säubern
+    df.columns = df.columns.astype(str).str.strip()
 
-    # AGS-Spalte identifizieren und normalisieren
+    # AGS-Spalte finden und vereinheitlichen
     ags_col = next((c for c in df.columns if "AGS" in c.upper()), None)
     if not ags_col:
-        st.error(f"Keine AGS-Spalte gefunden! Erkannte Spalten: {list(df.columns)}")
+        st.error(
+            f"Keine AGS-Spalte gefunden! Vorhandene Spalten: {list(df.columns)}"
+        )
         st.stop()
 
     df = df.rename(columns={ags_col: "AGS"})
 
-    # Ziffern extrahieren und auf 8-stelligen amtlichen Schlüssel normieren
+    # AGS bereinigen: Nur Ziffern, 8-stellig mit führenden Nullen
     df["AGS"] = df["AGS"].astype(str).str.extract(r"(\d+)")[0]
     df = df.dropna(subset=["AGS"])
     df["AGS"] = df["AGS"].str.zfill(8)
 
-    # Absicherung für den Gemeindenamen
+    # Absicherung für die Kommune-Spalte
     if "Kommune" not in df.columns:
         kom_col = next(
             (
                 c
                 for c in df.columns
-                if any(x in c.upper() for x in ["KOMMUNE", "NAME", "STADT", "GEMEINDE"])
+                if any(
+                    x in c.upper() for x in ["KOMMUNE", "NAME", "STADT", "GEMEINDE"]
+                )
             ),
             None,
         )
@@ -74,24 +82,27 @@ geojson_data = load_geojson()
 
 st.title("🗺️ NRW-Kommunen: Projektübersicht & Einstufung")
 
-# Sidebar: Attributauswahl zur farblichen Differenzierung
-ignore_cols = [
+# Spalten filtern, die als kategoriale Färbung infrage kommen
+excluded_patterns = [
     "AGS",
     "ARS",
-    "ARS (12-stellig)",
-    "Bevölkerung",
-    "Bevoelkerung",
-    "Kommune",
+    "BEVÖLKERUNG",
+    "BEVOELKERUNG",
+    "KOMMUNE",
+    "DETAILS",
 ]
-available_vars = [c for c in df.columns if c not in ignore_cols]
+available_vars = [
+    c
+    for c in df.columns
+    if not any(pattern in c.upper() for pattern in excluded_patterns)
+]
 
 if not available_vars:
-    st.error("Keine auswertbaren Kategorienspalten in der CSV gefunden.")
-    st.stop()
+    available_vars = [c for c in df.columns if c not in ["AGS", "Kommune"]]
 
 selected_var = st.sidebar.selectbox("Färbung nach Variable:", available_vars, index=0)
 
-# Kategoriale Farbpalette erzeugen
+# Kategoriale Farbpalette
 unique_vals = sorted(df[selected_var].dropna().unique().tolist())
 PALETTE = [
     "#E5243B",
@@ -107,14 +118,14 @@ PALETTE = [
 ]
 color_map = {val: PALETTE[i % len(PALETTE)] for i, val in enumerate(unique_vals)}
 
-# Dictionary-Lookup: AGS -> Merkmalsausprägung (letzter Eintrag bei Duplikaten)
+# Dictionary-Lookup: AGS -> Merkmalsausprägung
 lookup_dict = dict(zip(df["AGS"], df[selected_var]))
 
 
 def get_ags_from_props(props):
-    """Prüft gängige DVG-/Shapefile-Attribute auf den 8-stelligen Gemeindeschlüssel."""
-    for k in ["AGS", "SCH", "SCHLUESSEL", "GMD", "ARS", "id"]:
-        val = props.get(k)
+    """Liest den 8-stelligen amtlichen Gemeindeschlüssel aus den GeoJSON-Attributen."""
+    for key in ["AGS", "SCH", "SCHLUESSEL", "GMD", "ARS", "id"]:
+        val = props.get(key)
         if val:
             digits = "".join(filter(str.isdigit, str(val)))
             if len(digits) >= 8:
@@ -144,10 +155,10 @@ def style_fn(feature):
     }
 
 
-# Folium Map ohne API-Key (OpenStreetMap Standard-Tiles)
+# Standard-OpenStreetMap-Hintergrund (funktioniert ohne API-Key)
 m = folium.Map(location=[51.45, 7.50], zoom_start=8, tiles="OpenStreetMap")
 
-# Tooltip dynamisch auf vorhandenes Namensfeld mappen
+# Namensfeld für Hover-Tooltip identifizieren
 sample_props = (
     geojson_data["features"][0].get("properties", {})
     if geojson_data.get("features")
@@ -169,19 +180,19 @@ folium.GeoJson(
     tooltip=tooltip,
 ).add_to(m)
 
-# Layout: Karte links, Metriken & Legende rechts
-c_map, c_leg = st.columns([3, 1])
+# 2-Spalten-Layout: Karte links, Legende rechts
+col_map, col_legend = st.columns([3, 1])
 
-with c_map:
-    st_folium(m, width="100%", height=650)
+with col_map:
+    st_folium(m, width="100%", height=680)
 
-with c_leg:
+with col_legend:
     st.subheader("Legende")
     for val, color in color_map.items():
         st.markdown(
-            f'<div style="display:flex; align-items:center; margin-bottom:6px;">'
-            f'<div style="background-color:{color}; width:18px; height:18px; border-radius:3px; margin-right:8px;"></div>'
-            f'<span style="font-size:14px;">{val}</span></div>',
+            f'<div style="display:flex; align-items:center; margin-bottom:8px;">'
+            f'<div style="background-color:{color}; width:18px; height:18px; border-radius:3px; margin-right:8px; flex-shrink:0;"></div>'
+            f'<span style="font-size:14px; line-height:1.2;">{val}</span></div>',
             unsafe_allow_html=True,
         )
     st.divider()
