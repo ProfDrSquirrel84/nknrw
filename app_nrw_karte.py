@@ -18,28 +18,53 @@ def load_data():
         st.error(f"Datei 'daten.csv' nicht gefunden: {DATA_PATH}")
         st.stop()
 
-    df = pd.read_csv(DATA_PATH, sep=None, engine="python", dtype=str)
+    # Robuste Trennzeichen-Erkennung: Erst Semikolon, dann Tab/Komma via Python-Engine
+    try:
+        df = pd.read_csv(DATA_PATH, sep=";", dtype=str)
+        if df.shape[1] == 1:
+            df = pd.read_csv(DATA_PATH, sep=None, engine="python", dtype=str)
+    except Exception:
+        df = pd.read_csv(DATA_PATH, sep=None, engine="python", dtype=str)
+
+    # Spaltennamen von Whitespace befreien
     df.columns = df.columns.str.strip()
 
-    # AGS-Spalte flexibel ermitteln
+    # AGS-Spalte identifizieren und normalisieren
     ags_col = next((c for c in df.columns if "AGS" in c.upper()), None)
     if not ags_col:
-        st.error(f"Keine AGS-Spalte gefunden! Vorhanden: {list(df.columns)}")
+        st.error(f"Keine AGS-Spalte gefunden! Erkannte Spalten: {list(df.columns)}")
         st.stop()
 
     df = df.rename(columns={ags_col: "AGS"})
-    df["AGS"] = df["AGS"].astype(str).str.extract(r"(\d+)")[0].str.zfill(8)
+
+    # Ziffern extrahieren und auf 8-stelligen amtlichen Schlüssel normieren
+    df["AGS"] = df["AGS"].astype(str).str.extract(r"(\d+)")[0]
+    df = df.dropna(subset=["AGS"])
+    df["AGS"] = df["AGS"].str.zfill(8)
+
+    # Absicherung für den Gemeindenamen
+    if "Kommune" not in df.columns:
+        kom_col = next(
+            (
+                c
+                for c in df.columns
+                if any(x in c.upper() for x in ["KOMMUNE", "NAME", "STADT", "GEMEINDE"])
+            ),
+            None,
+        )
+        if kom_col:
+            df = df.rename(columns={kom_col: "Kommune"})
+        else:
+            df["Kommune"] = df["AGS"]
+
     return df
 
 
 @st.cache_data
 def load_geojson():
     if not GEOJSON_PATH.is_file():
-        st.error(
-            f"Datei 'nrw_gemeinden.geojson' fehlt. Bitte erst die Konvertierung ausführen!"
-        )
+        st.error(f"Datei 'nrw_gemeinden.geojson' fehlt unter: {GEOJSON_PATH}")
         st.stop()
-
     with open(GEOJSON_PATH, "r", encoding="utf-8") as f:
         return json.load(f)
 
@@ -49,14 +74,24 @@ geojson_data = load_geojson()
 
 st.title("🗺️ NRW-Kommunen: Projektübersicht & Einstufung")
 
-# Variablenauswahl für Einfärbung
-ignore_cols = ["AGS", "ARS", "ARS (12-stellig)", "Bevölkerung", "Bevoelkerung"]
+# Sidebar: Attributauswahl zur farblichen Differenzierung
+ignore_cols = [
+    "AGS",
+    "ARS",
+    "ARS (12-stellig)",
+    "Bevölkerung",
+    "Bevoelkerung",
+    "Kommune",
+]
 available_vars = [c for c in df.columns if c not in ignore_cols]
-selected_var = st.sidebar.selectbox(
-    "Färbung nach Variable:", available_vars, index=0
-)
 
-# Farbpalette erzeugen
+if not available_vars:
+    st.error("Keine auswertbaren Kategorienspalten in der CSV gefunden.")
+    st.stop()
+
+selected_var = st.sidebar.selectbox("Färbung nach Variable:", available_vars, index=0)
+
+# Kategoriale Farbpalette erzeugen
 unique_vals = sorted(df[selected_var].dropna().unique().tolist())
 PALETTE = [
     "#E5243B",
@@ -70,17 +105,15 @@ PALETTE = [
     "#FD6925",
     "#3F7E44",
 ]
-color_map = {
-    val: PALETTE[i % len(PALETTE)] for i, val in enumerate(unique_vals)
-}
+color_map = {val: PALETTE[i % len(PALETTE)] for i, val in enumerate(unique_vals)}
 
-# Lookup-Dictionary: AGS -> Wert
+# Dictionary-Lookup: AGS -> Merkmalsausprägung (letzter Eintrag bei Duplikaten)
 lookup_dict = dict(zip(df["AGS"], df[selected_var]))
 
 
 def get_ags_from_props(props):
-    # Geobasis NRW verwendet in DVG meist 'AGS', 'SCH', 'SCHLUESSEL' oder 'GMD'
-    for k in ["AGS", "SCH", "SCHLUESSEL", "GMD", "ARS"]:
+    """Prüft gängige DVG-/Shapefile-Attribute auf den 8-stelligen Gemeindeschlüssel."""
+    for k in ["AGS", "SCH", "SCHLUESSEL", "GMD", "ARS", "id"]:
         val = props.get(k)
         if val:
             digits = "".join(filter(str.isdigit, str(val)))
@@ -91,15 +124,6 @@ def get_ags_from_props(props):
     return ""
 
 
-def get_name_from_props(props):
-    # Geobasis NRW nutzt in DVG meist 'GN' (Gemeindename) oder 'GEN'
-    for k in ["GN", "GEN", "NAME", "GMD_NAME"]:
-        if props.get(k):
-            return props[k]
-    return "Gemeinde"
-
-
-# Kartenstyling
 def style_fn(feature):
     props = feature.get("properties", {})
     ags = get_ags_from_props(props)
@@ -116,19 +140,22 @@ def style_fn(feature):
         "fillColor": "#F7FAFC",
         "color": "#CBD5E0",
         "weight": 0.4,
-        "fillOpacity": 0.2,
+        "fillOpacity": 0.25,
     }
 
 
-# Folium Map zentriert auf NRW
-m = folium.Map(location=[51.45, 7.50], zoom_start=8, tiles="CartoDB positron")
+# Folium Map ohne API-Key (OpenStreetMap Standard-Tiles)
+m = folium.Map(location=[51.45, 7.50], zoom_start=8, tiles="OpenStreetMap")
 
-# Tooltip-Eigenschaft dynamisch identifizieren (GN oder GEN)
-sample_props = geojson_data["features"][0].get("properties", {})
+# Tooltip dynamisch auf vorhandenes Namensfeld mappen
+sample_props = (
+    geojson_data["features"][0].get("properties", {})
+    if geojson_data.get("features")
+    else {}
+)
 tooltip_field = next(
     (k for k in ["GN", "GEN", "NAME", "GMD_NAME"] if k in sample_props), None
 )
-
 tooltip = (
     folium.GeoJsonTooltip(fields=[tooltip_field], aliases=["Kommune:"])
     if tooltip_field
@@ -136,10 +163,13 @@ tooltip = (
 )
 
 folium.GeoJson(
-    geojson_data, name="Gemeinden", style_function=style_fn, tooltip=tooltip
+    geojson_data,
+    name="Gemeinden",
+    style_function=style_fn,
+    tooltip=tooltip,
 ).add_to(m)
 
-# Layout
+# Layout: Karte links, Metriken & Legende rechts
 c_map, c_leg = st.columns([3, 1])
 
 with c_map:
@@ -156,6 +186,7 @@ with c_leg:
         )
     st.divider()
     st.metric("Erfasste Kommunen", len(df["Kommune"].unique()))
+    st.metric("Gesamtanträge", len(df))
 
 with st.expander("Tabellarische Übersicht"):
     st.dataframe(df, use_container_width=True)
