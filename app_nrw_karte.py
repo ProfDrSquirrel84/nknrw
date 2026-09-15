@@ -119,11 +119,10 @@ PALETTE = [
 ]
 color_map = {val: PALETTE[i % len(PALETTE)] for i, val in enumerate(all_unique_vals)}
 
-# Schnelles Nachschlagen: AGS -> Datenzeile
 data_by_ags = df.set_index("AGS").to_dict(orient="index")
 active_ags_set = set(df_filtered["AGS"])
 
-# 3. GeoJSON-Properties dynamisch anreichern für aussagekräftige Tooltips
+# 3. GeoJSON-Properties mit Tooltip-Informationen anreichern
 for feat in geojson_data["features"]:
     props = feat["properties"]
     ags = str(props.get("AGS", "")).strip().zfill(8)
@@ -133,13 +132,11 @@ for feat in geojson_data["features"]:
         props["Info_Angebot"] = row.get("Angebot", "-")
         props["Info_Einstieg"] = row.get("Einstiegszeitpunkt", "-")
         props["Info_Partei"] = row.get("Partei", "-")
-        props["Info_Aktiv"] = "Ja" if ags in active_ags_set else "Ausgefiltert"
     else:
         props["Info_Status"] = "Nicht im Projekt"
         props["Info_Angebot"] = "-"
         props["Info_Einstieg"] = "-"
         props["Info_Partei"] = "-"
-        props["Info_Aktiv"] = "Nein"
 
 # 4. Such- und Zoomfunktion
 kommune_list = sorted(df["Kommune"].dropna().unique().tolist())
@@ -149,7 +146,6 @@ search_kommune = st.sidebar.selectbox(
     index=0,
 )
 
-# Koordinatenberechnung bei Einzelsuche
 center_loc = [51.45, 7.50]
 zoom_lvl = 8
 
@@ -176,7 +172,7 @@ def style_fn(feature):
     props = feature.get("properties", {})
     ags = str(props.get("AGS", "")).strip().zfill(8)
 
-    # Kommune ist aktiv im gefilterten Datensatz
+    # 1. Enthaltene und aktiv gefilterte Kommunen
     if ags in active_ags_set:
         val = data_by_ags[ags].get(selected_var)
         is_highlighted = (
@@ -187,19 +183,19 @@ def style_fn(feature):
             "fillColor": color_map.get(val, "#3182ce"),
             "color": "#FFD700" if is_highlighted else "#1A202C",
             "weight": 3.0 if is_highlighted else 1.6,
-            "fillOpacity": 0.9 if is_highlighted else 0.8,
+            "fillOpacity": 0.85,
         }
 
-    # Hintergrund für alle übrigen Kommunen
+    # 2. Alle anderen NRW-Gemeinden: Deutlich sichtbare Grenzen, transparente Hellgrau-Füllung
     return {
-        "fillColor": "#F8FAFC",
-        "color": "#94A3B8",
-        "weight": 0.4,
-        "fillOpacity": 0.1,
+        "fillColor": "#CBD5E1",
+        "color": "#64748B",
+        "weight": 0.8,
+        "fillOpacity": 0.25,
     }
 
 
-# Kartenerstellung mit dezenten Tiles (Positron für maximale Kontraste)
+# Folium Map mit Standard-OpenStreetMap (kein API-Key nötig)
 m = folium.Map(location=center_loc, zoom_start=zoom_lvl, tiles="OpenStreetMap")
 
 tooltip = folium.GeoJsonTooltip(
@@ -216,11 +212,10 @@ folium.GeoJson(
     tooltip=tooltip,
 ).add_to(m)
 
-# 5. Layout & Anzeige
+# 5. Layout
 col_map, col_legend = st.columns([3, 1])
 
 with col_map:
-    # Nur Klick-Objekte abfangen, um Reruns beim bloßen Verschieben/Zoomen zu verhindern
     map_output = st_folium(
         m,
         width="100%",
@@ -239,12 +234,19 @@ with col_legend:
             f'<span style="font-size:14px; line-height:1.2;"><b>{val}</b>: {count}</span></div>',
             unsafe_allow_html=True,
         )
+    # Neutraler Legenden-Eintrag für Hintergrundkommunen
+    st.markdown(
+        '<div style="display:flex; align-items:center; margin-top:12px; margin-bottom:8px;">'
+        '<div style="background-color:#CBD5E1; border:1px solid #64748B; width:18px; height:18px; border-radius:3px; margin-right:8px; flex-shrink:0;"></div>'
+        '<span style="font-size:14px; color:#475569; line-height:1.2;">Nicht erfasst / ausgefiltert</span></div>',
+        unsafe_allow_html=True,
+    )
     st.divider()
     st.metric("Ausgewählte Kommunen", len(df_filtered["Kommune"].unique()))
     st.metric("Gefilterte Anträge", len(df_filtered))
-    st.caption(f"Gesamtbestand: {len(df)} Einträge")
+    st.caption(f"Gesamtbestand Tabelle: {len(df)} Einträge")
 
-# 6. Detail-Factsheet bei Klick auf ein Polygon
+# 6. Interaktives Factsheet bei Polygon-Klick
 clicked_feature = map_output.get("last_active_drawing") if map_output else None
 if clicked_feature:
     clicked_props = clicked_feature.get("properties", {})
@@ -262,7 +264,7 @@ if clicked_feature:
         c4.markdown(f"**Projektangebot:** {details.get('Angebot', '-')}")
         c4.markdown(f"**Einstieg:** {details.get('Einstiegszeitpunkt', '-')}")
 
-# 7. Tabellenübersicht & CSV-Export
+# 7. Tabellenansicht & CSV-Export
 with st.expander("Tabellarische Übersicht (Gefiltert)", expanded=False):
     st.dataframe(df_filtered, use_container_width=True)
     csv_bytes = df_filtered.to_csv(sep=";", index=False).encode("utf-8-sig")
