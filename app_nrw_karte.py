@@ -200,7 +200,7 @@ def style_fn(feature):
 
 
 # Kartenerstellung mit dezenten Tiles (Positron für maximale Kontraste)
-m = folium.Map(location=center_loc, zoom_start=zoom_lvl, tiles="CartoDB positron")
+m = folium.Map(location=center_loc, zoom_start=zoom_lvl, tiles="OpenStreetMap")
 
 tooltip = folium.GeoJsonTooltip(
     fields=["GEN", "Info_Status", "Info_Angebot", "Info_Einstieg", "Info_Partei"],
