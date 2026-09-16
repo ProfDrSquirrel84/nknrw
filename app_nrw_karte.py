@@ -16,6 +16,35 @@ GEOJSON_KREISE = BASE_DIR / "nrw_kreise.geojson"
 
 GITHUB_KREISE_RAW_URL = "https://raw.githubusercontent.com/<DEIN_GITHUB_USER>/<DEIN_REPO>/main/nrw_kreise.geojson"
 
+# ==============================================================================
+# Custom CSS für Vollbildkarte & schwebende Overlays
+# ==============================================================================
+st.markdown("""
+    <style>
+    /* Entfernt Standard-Padding von Streamlit, damit die Karte maximiert wird */
+    .block-container {
+        padding-top: 1rem;
+        padding-bottom: 0rem;
+        padding-left: 1rem;
+        padding-right: 1rem;
+        max-width: 100% !important;
+    }
+    /* Schwebendes Overlay für die KPI-Übersicht oben rechts über der Karte */
+    .floating-overlay {
+        position: absolute;
+        top: 20px;
+        right: 30px;
+        z-index: 99999;
+        background: rgba(255, 255, 255, 0.92);
+        padding: 14px 18px;
+        border-radius: 10px;
+        box-shadow: 0 4px 20px rgba(0,0,0,0.18);
+        border: 1px solid #cbd5e1;
+        width: 320px;
+    }
+    </style>
+""", unsafe_allow_html=True)
+
 
 def clean_val(val, default="-"):
     if val is None or pd.isna(val):
@@ -102,7 +131,7 @@ df_raw = load_data()
 # ==============================================================================
 # 2. Interaktive Auswahlfilter in der Sidebar
 # ==============================================================================
-st.sidebar.markdown("### Filter & Steuerung")
+st.sidebar.markdown("### 🎯 Filter & Steuerung")
 
 all_available_units = sorted(list(df_raw["Kommune"].dropna().unique()))
 selected_units = st.sidebar.multiselect(
@@ -288,7 +317,7 @@ allowed_vars = [
 chart_candidates = [v for v in allowed_vars if v in df_raw.columns]
 
 selected_chart_col = st.sidebar.selectbox(
-    "Variable für Diagramm & Kartenfärbung:",
+    "📊 Variable für Diagramm & Kartenfärbung:",
     options=chart_candidates,
     index=(
         chart_candidates.index("Angebot") if "Angebot" in chart_candidates else 0
@@ -412,7 +441,7 @@ if search_kommune != "(Übersicht)":
                 break
 
 # ==============================================================================
-# 7. Styling & Leaflet-Karte (Dezente, angenehme Outline für Mehrfachangaben)
+# 7. Styling & Leaflet-Karte
 # ==============================================================================
 def style_fn_gemeinden(feature):
     props = feature.get("properties", {})
@@ -426,7 +455,6 @@ def style_fn_gemeinden(feature):
     cat = props.get("Selected_Category")
     fill = color_map.get(cat, "#00689D")
     
-    # Angenehme, moderate Stärke für Mehrfachangaben (2.5 statt 5.0)
     is_multi = props.get("Is_Multi", False)
     weight = 2.8 if is_multi else 1.3
     if is_highlighted:
@@ -557,91 +585,48 @@ if geojson_data and geojson_data["features"]:
     ).add_to(m)
 
 # ==============================================================================
-# 8. Hauptlayout: Karte links, Übersicht & Diagramm rechts nebeneinander
+# 8. Vollflächige Karte mit schwebenden Overlays
 # ==============================================================================
-st.title("Bewerber-Kommunen: Räumliche Übersicht")
+st.title("🗺️ NRW-Kommunen: Übersicht & Beteiligung")
 
-col_map, col_side = st.columns([60, 40])
+# Karte erstreckt sich über die volle Bildschirmbreite & -höhe
+map_output = st_folium(
+    m,
+    width="100%",
+    height=850,
+    returned_objects=["last_active_drawing"],
+)
 
-with col_map:
-    map_output = st_folium(
-        m,
-        width="100%",
-        height=740,
-        returned_objects=["last_active_drawing"],
-    )
+# Schwebendes KPI-Overlay über der Karte (oben rechts positioniert per CSS)
+active_filters = []
+if selected_units:
+    active_filters.append(f"{len(selected_units)} Kommunen")
+if selected_offers:
+    active_filters.append(f"{len(selected_offers)} Angebote")
+filter_label = f"Aktiv: {', '.join(active_filters)}" if active_filters else "(Alle Einheiten)"
 
-with col_side:
-    st.subheader("Übersicht")
-    active_filters = []
-    if selected_units:
-        active_filters.append(f"{len(selected_units)} Kommunen")
-    if selected_offers:
-        active_filters.append(f"{len(selected_offers)} Angebote")
-    
-    filter_label = f"Aktiv: {', '.join(active_filters)}" if active_filters else "(Alle Einheiten)"
-    st.caption(f"Filter: **{filter_label}**")
+unique_pop = (
+    df.drop_duplicates(subset=["AGS_MATCH"])["Bevoelkerung_Num"].dropna().sum()
+)
+pop_str = f"{int(unique_pop):,}".replace(",", ".") if unique_pop > 0 else "-"
 
-    st.markdown(
-        '<div style="display:flex; align-items:center; margin-bottom:10px;">'
-        '<div style="background-color:#00689D; width:15px; height:15px;'
-        ' border-radius:3px; margin-right:8px; flex-shrink:0;"></div><span'
-        ' style="font-size:13px; line-height:1.2;"><b>Beteiligte Einheit</b></span></div>',
-        unsafe_allow_html=True,
-    )
-
-    kpi1, kpi2 = st.columns(2)
-    kpi1.metric("Bewerber", len(data_by_match_key))
-    kpi2.metric("Projektanträge", total_applications_count)
-
-    unique_pop = (
-        df.drop_duplicates(subset=["AGS_MATCH"])["Bevoelkerung_Num"].dropna().sum()
-    )
-    if unique_pop > 0:
-        st.metric("Erfasste Einwohner", f"{int(unique_pop):,}".replace(",", "."))
-
-    st.markdown("---")
-    st.subheader(f"Verteilung: {selected_chart_col}")
-
-    series_split = (
-        df[selected_chart_col]
-        .dropna()
-        .astype(str)
-        .str.split(";")
-        .explode()
-        .str.strip()
-    )
-    series_split = series_split[series_split != ""]
-
-    if not series_split.empty:
-        counts = series_split.value_counts().reset_index()
-        counts.columns = [selected_chart_col, "Anzahl"]
-        counts = counts.sort_values(by="Anzahl", ascending=True)
-
-        fig = px.bar(
-            counts,
-            x="Anzahl",
-            y=selected_chart_col,
-            orientation="h",
-            text="Anzahl",
-            color=selected_chart_col,
-            color_discrete_map=color_map,
-        )
-        fig.update_traces(textposition="outside")
-        fig.update_layout(
-            showlegend=False,
-            height=max(280, len(counts) * 32),
-            margin=dict(l=0, r=20, t=10, b=10),
-            xaxis_title="Fallzahl / Nennungen",
-            yaxis_title="",
-            yaxis=dict(tickfont=dict(size=11)),
-        )
-        st.plotly_chart(fig, use_container_width=True)
-    else:
-        st.info("Keine Daten für die gewählte Kombination vorhanden.")
+st.markdown(f"""
+    <div class="floating-overlay">
+        <b style="font-size:14px; color:#0F2942;">📊 Live-Übersicht</b><br>
+        <span style="font-size:11px; color:#64748B;">{filter_label}</span>
+        <hr style="margin: 6px 0; border-color:#cbd5e1;">
+        <div style="display:flex; justify-content:space-between; font-size:13px;">
+            <span>Bewerber: <b>{len(data_by_match_key)}</b></span>
+            <span>Anträge: <b>{total_applications_count}</b></span>
+        </div>
+        <div style="font-size:13px; margin-top:4px;">
+            Erfasste Einwohner: <b>{pop_str}</b>
+        </div>
+    </div>
+""", unsafe_allow_html=True)
 
 # ==============================================================================
-# 9. Factsheet bei Klick auf ein Polygon (unter der Karte/Spalten)
+# 9. Factsheet bei Klick auf ein Polygon (unter der Vollbildkarte)
 # ==============================================================================
 clicked_feature = map_output.get("last_active_drawing") if map_output else None
 if clicked_feature:
@@ -675,3 +660,46 @@ if clicked_feature:
                     )
             else:
                 st.markdown("<span style='font-size: 12px;'>-</span>", unsafe_allow_html=True)
+
+# ==============================================================================
+# 10. Diagramm unter der Karte
+# ==============================================================================
+st.markdown("---")
+st.subheader(f"📊 Verteilung: {selected_chart_col}")
+
+series_split = (
+    df[selected_chart_col]
+    .dropna()
+    .astype(str)
+    .str.split(";")
+    .explode()
+    .str.strip()
+)
+series_split = series_split[series_split != ""]
+
+if not series_split.empty:
+    counts = series_split.value_counts().reset_index()
+    counts.columns = [selected_chart_col, "Anzahl"]
+    counts = counts.sort_values(by="Anzahl", ascending=True)
+
+    fig = px.bar(
+        counts,
+        x="Anzahl",
+        y=selected_chart_col,
+        orientation="h",
+        text="Anzahl",
+        color=selected_chart_col,
+        color_discrete_map=color_map,
+    )
+    fig.update_traces(textposition="outside")
+    fig.update_layout(
+        showlegend=False,
+        height=max(280, len(counts) * 32),
+        margin=dict(l=0, r=20, t=10, b=10),
+        xaxis_title="Fallzahl / Nennungen",
+        yaxis_title="",
+        yaxis=dict(tickfont=dict(size=11)),
+    )
+    st.plotly_chart(fig, use_container_width=True)
+else:
+    st.info("Keine Daten für die gewählte Kombination vorhanden.")
