@@ -59,7 +59,7 @@ def load_data():
         )
         df["Kommune"] = df[kom_col] if kom_col else df["AGS"]
 
-    # Spalten für Bevölkerung und Partei flexibel zuordnen
+    # Spalten für Bevölkerung und Partei matchen
     bev_col = next(
         (
             c
@@ -78,25 +78,12 @@ def load_data():
     if partei_col and partei_col != "Partei":
         df["Partei"] = df[partei_col]
 
-    # Numerische Bevölkerung für Auswertungen und Sortierungen erzeugen
+    # Reine Ziffernfolge in Integer umwandeln für metrische Berechnungen und Diagramme
     def parse_pop(val):
         digits = "".join(filter(str.isdigit, str(val)))
         return int(digits) if digits else None
 
     df["Bevoelkerung_Num"] = df["Bevoelkerung"].apply(parse_pop)
-
-    # Größenklassen definieren (orientiert an BBSR / Raumordnung)
-    bins = [0, 10000, 20000, 50000, 100000, float("inf")]
-    labels = [
-        "Landgemeinde (< 10 Tsd.)",
-        "Kleinstadt (10–20 Tsd.)",
-        "Größere Kleinstadt (20–50 Tsd.)",
-        "Mittelstadt (50–100 Tsd.)",
-        "Großstadt (> 100 Tsd.)",
-    ]
-    df["Groessenklasse"] = pd.cut(
-        df["Bevoelkerung_Num"], bins=bins, labels=labels, right=False
-    )
 
     return df
 
@@ -274,76 +261,71 @@ folium.GeoJson(
     tooltip=tooltip,
 ).add_to(m)
 
-# Layout: Karte links, Übersicht & Schnell-Diagramm rechts
-col_map, col_side = st.columns([3, 1])
+# 2-Spalten-Layout: 70% Karte, 30% Kennzahlen & Bevölkerungsdiagramm
+col_map, col_side = st.columns([7, 3])
 
 with col_map:
     map_output = st_folium(
         m,
         width="100%",
-        height=720,
+        height=740,
         returned_objects=["last_active_drawing"],
     )
 
 with col_side:
     st.subheader("Übersicht")
     st.markdown(
-        '<div style="display:flex; align-items:center; margin-bottom:10px;">'
-        '<div style="background-color:#00689D; width:18px; height:18px; border-radius:3px; margin-right:8px; flex-shrink:0;"></div>'
-        '<span style="font-size:14px; line-height:1.2;"><b>Erfasste Kommune</b></span></div>',
+        '<div style="display:flex; align-items:center; margin-bottom:8px;">'
+        '<div style="background-color:#00689D; width:16px; height:16px; border-radius:3px; margin-right:8px; flex-shrink:0;"></div>'
+        '<span style="font-size:13px; line-height:1.2;"><b>Erfasste Kommune</b></span></div>',
         unsafe_allow_html=True,
     )
     st.markdown(
-        '<div style="display:flex; align-items:center; margin-bottom:15px;">'
-        '<div style="background-color:#CBD5E1; border:1px solid #94A3B8; width:18px; height:18px; border-radius:3px; margin-right:8px; flex-shrink:0;"></div>'
-        '<span style="font-size:14px; color:#475569; line-height:1.2;">Nicht erfasst</span></div>',
+        '<div style="display:flex; align-items:center; margin-bottom:12px;">'
+        '<div style="background-color:#CBD5E1; border:1px solid #94A3B8; width:16px; height:16px; border-radius:3px; margin-right:8px; flex-shrink:0;"></div>'
+        '<span style="font-size:13px; color:#475569; line-height:1.2;">Nicht erfasst</span></div>',
         unsafe_allow_html=True,
     )
-    st.divider()
-    st.metric("Erfasste Kommunen", len(df["Kommune"].unique()))
-    st.metric("Gesamtzahl Anträge", len(df))
-    
-    # Gesamte erfasste Bevölkerung berechnen
+
+    kpi1, kpi2 = st.columns(2)
+    kpi1.metric("Kommunen", len(df["Kommune"].unique()))
+    kpi2.metric("Anträge", len(df))
+
     total_pop = df["Bevoelkerung_Num"].sum()
     if pd.notnull(total_pop) and total_pop > 0:
-        st.metric("Erfasste Bevölkerung", f"{int(total_pop):,}".replace(",", "."))
+        st.metric("Erfasste Einwohner", f"{int(total_pop):,}".replace(",", "."))
 
-    st.divider()
-    
-    # Kompaktes Balkendiagramm: Verteilung nach Gemeindegrößenklassen
-    st.markdown("**Kommunen nach Größenklassen**")
-    size_counts = (
-        df["Groessenklasse"]
-        .value_counts()
-        .reindex([
-            "Landgemeinde (< 10 Tsd.)",
-            "Kleinstadt (10–20 Tsd.)",
-            "Größere Kleinstadt (20–50 Tsd.)",
-            "Mittelstadt (50–100 Tsd.)",
-            "Großstadt (> 100 Tsd.)",
-        ])
-        .dropna()
-        .reset_index()
-    )
-    size_counts.columns = ["Klasse", "Anzahl"]
+    st.markdown("---")
+    st.markdown("##### 👥 Bevölkerung der Kommunen")
 
-    fig_side = px.bar(
-        size_counts,
-        x="Anzahl",
-        y="Klasse",
-        orientation="h",
-        text="Anzahl",
-        color_discrete_sequence=["#00689D"],
-    )
-    fig_side.update_layout(
-        margin=dict(l=0, r=10, t=10, b=10),
-        height=220,
-        xaxis_title="",
-        yaxis_title="",
-        yaxis=dict(autorange="reversed"),
-    )
-    fig_side.update_traces(textposition="outside")
-    st.plotly_chart(fig_side, use_container_width=True)
+    # Diagramm mit den echten Bevölkerungszahlen
+    df_pop = df.dropna(subset=["Bevoelkerung_Num"]).copy()
+    df_pop = df_pop.sort_values(by="Bevoelkerung_Num", ascending=True)
+
+    if not df_pop.empty:
+        fig_pop = px.bar(
+            df_pop,
+            x="Bevoelkerung_Num",
+            y="Kommune",
+            orientation="h",
+            text="Bevoelkerung_Num",
+            color_discrete_sequence=["#00689D"],
+        )
+        # Tausendertrennung direkt an den Balken
+        fig_pop.update_traces(
+            texttemplate="%{text:,.0f}",
+            textposition="outside",
+            cliponaxis=False,
+        )
+        fig_pop.update_layout(
+            height=max(420, len(df_pop) * 20),
+            margin=dict(l=0, r=45, t=10, b=10),
+            xaxis_title="",
+            yaxis_title="",
+            xaxis=dict(showticklabels=False, showgrid=False),
+            yaxis=dict(tickfont=dict(size=11)),
+        )
+        st.plotly_chart(fig_pop, use_container_width=True)
 
 # Factsheet bei Klick auf ein Polygon
 clicked_feature = map_output.get("last_active_drawing") if map_output else None
@@ -367,30 +349,3 @@ if clicked_feature:
         with c4:
             st.markdown(f"<span style='font-size: 13px;'><b>Projektangebot:</b> {details.get('Angebot', '-')}</span>", unsafe_allow_html=True)
             st.markdown(f"<span style='font-size: 13px;'><b>Einstieg:</b> {details.get('Einstiegszeitpunkt', '-') or '-'}</span>", unsafe_allow_html=True)
-
-# Ausklappbarer Bereich: Detaillierte Rangliste aller Kommunen nach Bevölkerung
-with st.expander("📊 Detailansicht: Bevölkerung aller beteiligten Kommunen im Vergleich", expanded=False):
-    df_chart = df.dropna(subset=["Bevoelkerung_Num"]).sort_values("Bevoelkerung_Num", ascending=True)
-
-    fig_detail = px.bar(
-        df_chart,
-        x="Bevoelkerung_Num",
-        y="Kommune",
-        orientation="h",
-        color="Regierungsbezirk" if "Regierungsbezirk" in df_chart.columns else None,
-        text="Bevoelkerung_Num",
-        title="Einwohnerzahl der erfassten Kommunen (sortiert)",
-        hover_data=["Typ", "Partei", "Angebot"],
-        color_discrete_sequence=px.colors.qualitative.Safe,
-    )
-    fig_detail.update_traces(
-        texttemplate="%{text:,.0f}",
-        textposition="outside",
-    )
-    fig_detail.update_layout(
-        height=max(500, len(df_chart) * 22),
-        xaxis_title="Bevölkerung (Einwohner)",
-        yaxis_title="",
-        margin=dict(l=10, r=40, t=50, b=30),
-    )
-    st.plotly_chart(fig_detail, use_container_width=True)
