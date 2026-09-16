@@ -600,7 +600,11 @@ if geojson_lv and geojson_lv.get("features"):
         geojson_lv,
         name="Landschaftsverband",
         style_function=style_fn_lv,
-        tooltip=folium.GeoJsonTooltip(fields=["GEN", "AGS"], aliases=["Verband:", "AGS:"], style=tooltip_style),
+        tooltip=folium.GeoJsonTooltip(
+            fields=["GEN", "AGS"],
+            aliases=["Verband:", "AGS:"],
+            style=tooltip_style
+        ),
     ).add_to(m)
 
 # 2. DANACH Landkreise
