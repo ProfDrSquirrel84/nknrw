@@ -386,7 +386,7 @@ def style_fn_gemeinden(feature):
             "fillColor": fill,
             "color": "#FFD700" if is_highlighted else "#0F2942",
             "weight": 3.0 if is_highlighted else 1.2,
-            "fillOpacity": 0.85,
+            "fillOpacity": 0.85,  # Kräftig im Vordergrund
         }
     return {
         "fillColor": "#CBD5E1",
@@ -400,7 +400,7 @@ def style_fn_kreise(feature):
     props = feature.get("properties", {})
     key = props.get("MATCH_KEY")
 
-    # Nur teilnehmende Landkreise hervorheben, restliche Kreise unsichtbar halten
+    # Nur teilnehmende Landkreise dezent im Hintergrund anzeigen
     if key in recorded_keys_set:
         target_info = data_by_match_key.get(key)
         is_highlighted = (
@@ -413,9 +413,10 @@ def style_fn_kreise(feature):
 
         return {
             "fillColor": fill,
-            "color": "#FFD700" if is_highlighted else "#1E293B",
-            "weight": 3.2 if is_highlighted else 2.2,
-            "fillOpacity": 0.80,
+            "color": "#FFD700" if is_highlighted else "#475569",
+            "weight": 2.5 if is_highlighted else 1.5,
+            "dashArray": "4, 4",     # Gestrichelte Kreisgrenze für klare Differenzierung
+            "fillOpacity": 0.35,     # Heller / transparenter Hintergrund
         }
 
     return {
@@ -443,8 +444,9 @@ def highlight_fn_kreise(feature):
         return {
             "fillColor": "#26BDE2",
             "color": "#0F2942",
-            "weight": 3.5,
-            "fillOpacity": 0.95,
+            "weight": 2.5,
+            "dashArray": "4, 4",
+            "fillOpacity": 0.55,
         }
     return {
         "fillColor": "#000000",
@@ -469,7 +471,7 @@ tooltip_style = """
     box-shadow: 0 4px 10px rgba(0, 0, 0, 0.12);
 """
 
-# Fabrik-Funktion verhindert die fehlerhafte Tooltip-Wiederverwendung
+
 def create_tooltip():
     return folium.GeoJsonTooltip(
         fields=[
@@ -503,16 +505,8 @@ def create_tooltip():
         sticky=False,
     )
 
-# 1. Gemeinde-Layer
-folium.GeoJson(
-    geojson_data,
-    name="Gemeinden",
-    style_function=style_fn_gemeinden,
-    highlight_function=highlight_fn_gemeinden,
-    tooltip=create_tooltip(),
-).add_to(m)
 
-# 2. Kreis-Layer mit separatem Tooltip
+# 1. ZUERST Landkreise hinzufügen -> liegen automatisch UNTEN / IM HINTERGRUND
 if geojson_kreise:
     folium.GeoJson(
         geojson_kreise,
@@ -521,6 +515,15 @@ if geojson_kreise:
         highlight_function=highlight_fn_kreise,
         tooltip=create_tooltip(),
     ).add_to(m)
+
+# 2. DANACH Gemeinden hinzufügen -> liegen automatisch OBEN / IM VORDERGRUND
+folium.GeoJson(
+    geojson_data,
+    name="Gemeinden",
+    style_function=style_fn_gemeinden,
+    highlight_function=highlight_fn_gemeinden,
+    tooltip=create_tooltip(),
+).add_to(m)
 
 # ==============================================================================
 # 6. Layout: Karte & Dashboard
