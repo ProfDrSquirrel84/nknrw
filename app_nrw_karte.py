@@ -17,7 +17,7 @@ GEOJSON_KREISE = BASE_DIR / "nrw_kreise.geojson"
 GITHUB_KREISE_RAW_URL = "https://raw.githubusercontent.com/<DEIN_GITHUB_USER>/<DEIN_REPO>/main/nrw_kreise.geojson"
 
 # ==============================================================================
-# Custom CSS für Vollbildkarte & schwebende Overlays (oben rechts & unten rechts)
+# Custom CSS für Vollbildkarte & kompakte, schwebende Overlays
 # ==============================================================================
 st.markdown("""
     <style>
@@ -46,7 +46,7 @@ st.markdown("""
         width: 300px;
         pointer-events: auto;
     }
-    /* Schwebendes Overlay unten rechts (Diagramm kompakt über der Karte) */
+    /* Schwebendes Overlay unten rechts (Kompaktes Diagramm über der Karte) */
     .floating-overlay-bottom-right {
         position: absolute;
         bottom: 35px;
@@ -57,7 +57,7 @@ st.markdown("""
         border-radius: 8px;
         box-shadow: 0 4px 15px rgba(0,0,0,0.2);
         border: 1px solid #cbd5e1;
-        width: 360px;
+        width: 320px;
         pointer-events: auto;
     }
     </style>
@@ -637,7 +637,7 @@ st.markdown(f"""
     </div>
 """, unsafe_allow_html=True)
 
-# 2. Overlay Unten Rechts (Kompaktes Diagramm direkt über der Karte)
+# 2. Overlay Unten Rechts (Kompaktes Diagramm über der Karte)
 series_split = (
     df[selected_chart_col]
     .dropna()
@@ -665,15 +665,15 @@ if not series_split.empty:
     fig.update_traces(textposition="outside")
     fig.update_layout(
         showlegend=False,
-        height=190,
-        margin=dict(l=0, r=10, t=2, b=2),
+        height=170,
+        margin=dict(l=0, r=5, t=2, b=2),
         xaxis_title="Fallzahl",
         yaxis_title="",
-        yaxis=dict(tickfont=dict(size=10)),
+        yaxis=dict(tickfont=dict(size=9)),
     )
     
     st.markdown('<div class="floating-overlay-bottom-right">', unsafe_allow_html=True)
-    st.markdown(f"<b style='font-size:12px; color:#0F2942;'>📊 Verteilung: {selected_chart_col}</b>", unsafe_allow_html=True)
+    st.markdown(f"<b style='font-size:11px; color:#0F2942;'>📊 Verteilung: {selected_chart_col}</b>", unsafe_allow_html=True)
     st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
     st.markdown('</div>', unsafe_allow_html=True)
 
