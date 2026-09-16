@@ -92,7 +92,7 @@ def load_geojson():
 df = load_data()
 geojson_data = load_geojson()
 
-st.title("🗺️ NRW-Kommunen: Übersicht & Beteiligung")
+st.title("NRW-Kommunen: Übersicht & Beteiligung")
 
 # Schneller Daten-Lookup per AGS
 data_by_ags = df.set_index("AGS").to_dict(orient="index")
