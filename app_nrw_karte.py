@@ -313,7 +313,12 @@ if geojson_kreise:
 
 # Such- und Zentrierfunktion
 kommune_list = sorted(
-    list({v["Kommune"] for v in data_by_ags_match := data_by_match_key.values() if v["Kommune"]})
+    list({v["Kommune"] for v in data_by_match_key.values() if v.get("Kommune")})
+)
+search_kommune = st.sidebar.selectbox(
+    "🔍 Kommune / Kreis suchen & zentrieren:",
+    ["(NRW Übersicht)"] + kommune_list,
+    index=0,
 )
 search_kommune = st.sidebar.selectbox(
     "🔍 Kommune / Kreis suchen & zentrieren:",
