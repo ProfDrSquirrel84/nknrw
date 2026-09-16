@@ -14,11 +14,12 @@ DATA_PATH = BASE_DIR / "daten.csv"
 GEOJSON_GEMEINDEN = BASE_DIR / "nrw_gemeinden.geojson"
 GEOJSON_KREISE = BASE_DIR / "nrw_kreise.geojson"
 
+# GitHub Fallback-URL (wird nur verwendet, falls nrw_kreise.geojson lokal fehlen sollte)
 GITHUB_KREISE_RAW_URL = "https://raw.githubusercontent.com/<DEIN_GITHUB_USER>/<DEIN_REPO>/main/nrw_kreise.geojson"
 
 
 def clean_val(val, default="-"):
-    """Verhindert, dass NaN/None-Werte Folium/Leaflet zum Absturz bringen."""
+    """Bereinigt NaN/None/Leerwerte, damit Leaflet/Folium nicht abstürzt."""
     if val is None or pd.isna(val):
         return default
     s = str(val).strip()
@@ -35,24 +36,26 @@ def load_data():
         st.stop()
 
     try:
-        df = pd.read_csv(DATA_PATH, sep=";", dtype=str, encoding="utf-8")
+        # utf-8-sig fängt das Windows-BOM sauber ab
+        df = pd.read_csv(DATA_PATH, sep=";", dtype=str, encoding="utf-8-sig")
         if df.shape[1] == 1:
             df = pd.read_csv(
-                DATA_PATH, sep=None, engine="python", dtype=str, encoding="utf-8"
+                DATA_PATH, sep=None, engine="python", dtype=str, encoding="utf-8-sig"
             )
     except Exception:
         df = pd.read_csv(
-            DATA_PATH, sep=None, engine="python", dtype=str, encoding="utf-8"
+            DATA_PATH, sep=None, engine="python", dtype=str, encoding="utf-8-sig"
         )
 
     df.columns = df.columns.astype(str).str.strip()
 
     ags_col = next((c for c in df.columns if "AGS" in c.upper()), None)
     if not ags_col:
-        st.error(f"Keine AGS-Spalte gefunden! Vorhandene Spalten: {list(df.columns)}")
+        st.error(f"Keine AGS-Spalte gefunden! Spalten: {list(df.columns)}")
         st.stop()
 
     df = df.rename(columns={ags_col: "AGS"})
+    # Bereinigter Match-Key ohne führende Nullen
     df["AGS_MATCH"] = (
         df["AGS"].astype(str).str.extract(r"(\d+)")[0].dropna().str.lstrip("0")
     )
@@ -106,9 +109,9 @@ def load_geojsons():
     with open(GEOJSON_GEMEINDEN, "r", encoding="utf-8") as f:
         gemeinden_data = json.load(f)
 
-    # Gültige Geometrien sicherstellen
+    # Nur Features mit gültiger Geometrie übernehmen
     gemeinden_data["features"] = [
-        feat for feat in gemeinden_data.get("features", []) if feat.get("geometry")
+        f for f in gemeinden_data.get("features", []) if f.get("geometry")
     ]
 
     kreise_data = None
@@ -125,7 +128,7 @@ def load_geojsons():
 
     if kreise_data:
         kreise_data["features"] = [
-            feat for feat in kreise_data.get("features", []) if feat.get("geometry")
+            f for f in kreise_data.get("features", []) if f.get("geometry")
         ]
 
     return gemeinden_data, kreise_data
@@ -239,18 +242,18 @@ selected_chart_col = st.sidebar.selectbox(
 )
 
 PALETTE = [
-    "#00689D",
-    "#4C9F38",
-    "#FD9D24",
-    "#DD1367",
-    "#26BDE2",
-    "#FCC30B",
-    "#A21942",
-    "#FD6925",
-    "#3F7E44",
-    "#8B5CF6",
-    "#06B6D4",
-    "#64748B",
+    "#00689D",  # Blau
+    "#4C9F38",  # Grün
+    "#FD9D24",  # Orange
+    "#DD1367",  # Magenta
+    "#26BDE2",  # Cyan
+    "#FCC30B",  # Gelb
+    "#A21942",  # Weinrot
+    "#FD6925",  # Dunkelorange
+    "#3F7E44",  # Waldgrün
+    "#8B5CF6",  # Violett
+    "#06B6D4",  # Türkis
+    "#64748B",  # Schiefergrau
 ]
 
 all_vals = (
@@ -267,14 +270,15 @@ color_map = {
 }
 
 # ==============================================================================
-# 4. GeoJSON-Properties anreichern (Garantiert keine NaN/None Werte!)
+# 4. GeoJSON-Properties absichern & anreichern
 # ==============================================================================
 def enrich_features(features):
     for feat in features:
         props = feat.setdefault("properties", {})
-        
-        # Name für den Tooltip absichern
-        props["GEN"] = clean_val(props.get("GEN") or props.get("NAME") or props.get("BEZ"), "Unbekannt")
+
+        props["GEN"] = clean_val(
+            props.get("GEN") or props.get("NAME") or props.get("BEZ"), "Unbekannt"
+        )
 
         raw_code = str(props.get("AGS") or props.get("AGS_0") or "")
         match_key = "".join(filter(str.isdigit, raw_code)).lstrip("0")
@@ -307,7 +311,6 @@ def enrich_features(features):
                 else raw_val
             )
             props["Selected_Category"] = first_val
-            props["Has_Data"] = "1"
         else:
             props["Im_Projekt"] = "Nein"
             props["Info_Status"] = "Nicht erfasst"
@@ -320,7 +323,6 @@ def enrich_features(features):
             props["Info_Zentral"] = "-"
             props["Info_Bevoelkerung"] = "-"
             props["Selected_Category"] = ""
-            props["Has_Data"] = "0"
 
 
 enrich_features(geojson_data["features"])
@@ -363,7 +365,6 @@ if search_kommune != "(NRW Übersicht)":
                     zoom_lvl = 9 if "kreis" in str(target_entry.get("Typ", "")).lower() else 11
                 break
 
-
 # ==============================================================================
 # 5. Styling & Map
 # ==============================================================================
@@ -399,6 +400,7 @@ def style_fn_kreise(feature):
     props = feature.get("properties", {})
     key = props.get("MATCH_KEY")
 
+    # Nur teilnehmende Landkreise hervorheben, restliche Kreise unsichtbar halten
     if key in recorded_keys_set:
         target_info = data_by_match_key.get(key)
         is_highlighted = (
@@ -467,53 +469,57 @@ tooltip_style = """
     box-shadow: 0 4px 10px rgba(0, 0, 0, 0.12);
 """
 
-tooltip = folium.GeoJsonTooltip(
-    fields=[
-        "GEN",
-        "Im_Projekt",
-        "Info_Bevoelkerung",
-        "Info_Klasse",
-        "Info_Partei",
-        "Info_Status",
-        "Info_Angebot",
-        "Info_Einstieg",
-        "Info_Zentral",
-        "Info_Typ",
-        "Info_RB",
-    ],
-    aliases=[
-        "Kommune / Kreis:",
-        "Projektbeteiligung:",
-        "Bevölkerung:",
-        "Größenklasse:",
-        "Partei:",
-        "Beschluss NKNRW:",
-        "Angebot(e):",
-        "Wunschstart(e):",
-        "Zentralörtlich:",
-        "Typ:",
-        "Regierungsbezirk:",
-    ],
-    style=tooltip_style,
-    localize=True,
-    sticky=False,
-)
+# Fabrik-Funktion verhindert die fehlerhafte Tooltip-Wiederverwendung
+def create_tooltip():
+    return folium.GeoJsonTooltip(
+        fields=[
+            "GEN",
+            "Im_Projekt",
+            "Info_Bevoelkerung",
+            "Info_Klasse",
+            "Info_Partei",
+            "Info_Status",
+            "Info_Angebot",
+            "Info_Einstieg",
+            "Info_Zentral",
+            "Info_Typ",
+            "Info_RB",
+        ],
+        aliases=[
+            "Kommune / Kreis:",
+            "Projektbeteiligung:",
+            "Bevölkerung:",
+            "Größenklasse:",
+            "Partei:",
+            "Beschluss NKNRW:",
+            "Angebot(e):",
+            "Wunschstart(e):",
+            "Zentralörtlich:",
+            "Typ:",
+            "Regierungsbezirk:",
+        ],
+        style=tooltip_style,
+        localize=True,
+        sticky=False,
+    )
 
+# 1. Gemeinde-Layer
 folium.GeoJson(
     geojson_data,
     name="Gemeinden",
     style_function=style_fn_gemeinden,
     highlight_function=highlight_fn_gemeinden,
-    tooltip=tooltip,
+    tooltip=create_tooltip(),
 ).add_to(m)
 
+# 2. Kreis-Layer mit separatem Tooltip
 if geojson_kreise:
     folium.GeoJson(
         geojson_kreise,
         name="Landkreise",
         style_function=style_fn_kreise,
         highlight_function=highlight_fn_kreise,
-        tooltip=tooltip,
+        tooltip=create_tooltip(),
     ).add_to(m)
 
 # ==============================================================================
