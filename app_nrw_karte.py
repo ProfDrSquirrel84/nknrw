@@ -59,7 +59,7 @@ def load_data():
         )
         df["Kommune"] = df[kom_col] if kom_col else df["AGS"]
 
-    # Spalten für Bevölkerung und Partei matchen
+    # Spalten für Bevölkerung und Partei flexibel finden
     bev_col = next(
         (
             c
@@ -71,10 +71,7 @@ def load_data():
     if bev_col and bev_col != "Bevoelkerung":
         df["Bevoelkerung"] = df[bev_col]
 
-    partei_col = next(
-        (c for c in df.columns if "PARTEI" in c.upper()),
-        None,
-    )
+    partei_col = next((c for c in df.columns if "PARTEI" in c.upper()), None)
     if partei_col and partei_col != "Partei":
         df["Partei"] = df[partei_col]
 
@@ -102,31 +99,93 @@ geojson_data = load_geojson()
 
 st.title("🗺️ NRW-Kommunen: Übersicht & Beteiligung")
 
-# Schneller Daten-Lookup per AGS
-data_by_ags = df.set_index("AGS").to_dict(orient="index")
-recorded_ags_set = set(df["AGS"])
+# ==============================================================================
+# 1. Flexible Paarung: Angebote vs. (alternative) Einstiegszeitpunkte
+# ==============================================================================
+data_by_ags = {}
+total_applications_count = 0
 
-# GeoJSON-Properties für den Tooltip vorbereiten
+for _, row in df.iterrows():
+    ags = str(row["AGS"]).strip().zfill(8)
+
+    raw_ang = str(row.get("Angebot", "")).strip()
+    raw_start = str(row.get("Einstiegszeitpunkt", "")).strip()
+
+    ang_list = [a.strip() for a in raw_ang.split(";") if a.strip() and a.strip() != "nan"]
+    start_list = [s.strip() for s in raw_start.split(";") if s.strip() and s.strip() != "nan"]
+
+    paired_offers = []
+
+    # Fall A: 1 Angebot mit mehreren alternativen Startterminen (z. B. "2026-10 oder 2027-01")
+    if len(ang_list) == 1 and len(start_list) > 1:
+        alt_starts = " oder ".join(start_list)
+        paired_offers.append({
+            "angebot": ang_list[0],
+            "start": f"{alt_starts} (alternativ)",
+        })
+        total_applications_count += 1
+
+    # Fall B: Mehrere Angebote und mehrere Termine (1:1 Zuordnung)
+    elif len(ang_list) > 1 and len(start_list) == len(ang_list):
+        for ang, st_time in zip(ang_list, start_list):
+            paired_offers.append({
+                "angebot": ang,
+                "start": st_time,
+            })
+        total_applications_count += len(ang_list)
+
+    # Fall C: 1 Angebot & 1 Termin oder asymmetrische Angaben
+    elif ang_list:
+        for idx, ang in enumerate(ang_list):
+            st_val = start_list[idx] if idx < len(start_list) else (", ".join(start_list) if start_list else "-")
+            paired_offers.append({
+                "angebot": ang,
+                "start": st_val,
+            })
+        total_applications_count += len(ang_list)
+    else:
+        total_applications_count += 1
+
+    data_by_ags[ags] = {
+        "Kommune": row.get("Kommune"),
+        "Typ": row.get("Typ", "-"),
+        "Regierungsbezirk": row.get("Regierungsbezirk", "-"),
+        "Partei": row.get("Partei", "-"),
+        "Bevoelkerung": row.get("Bevoelkerung", "-"),
+        "Bevoelkerung_Num": row.get("Bevoelkerung_Num"),
+        "BBSR_Einordnung": row.get("BBSR_Einordnung", "-"),
+        "Status_Beschluss": row.get("Status_Beschluss", "-"),
+        # Kompakte Tooltip-Vorschau
+        "Info_Angebot": " | ".join(ang_list) if ang_list else "-",
+        "Info_Einstieg": " / ".join(start_list) if start_list else "-",
+        "Angebote_Paare": paired_offers,
+        "Anzahl_Projekte": len(paired_offers) if paired_offers else 1,
+    }
+
+recorded_ags_set = set(data_by_ags.keys())
+
+# GeoJSON-Properties anreichern
 for feat in geojson_data["features"]:
     props = feat["properties"]
     ags = str(props.get("AGS", "")).strip().zfill(8)
-    row = data_by_ags.get(ags)
+    info = data_by_ags.get(ags)
 
-    if row:
-        props["Info_Status"] = row.get("Status_Beschluss", "-")
-        props["Info_Angebot"] = row.get("Angebot", "-")
-        props["Info_Einstieg"] = row.get("Einstiegszeitpunkt", "-")
-        props["Info_Typ"] = row.get("Typ", "-")
-        props["Info_RB"] = row.get("Regierungsbezirk", "-")
-        props["Info_Partei"] = row.get("Partei", "-")
+    if info:
+        props["Info_Status"] = info["Status_Beschluss"]
+        props["Info_Angebot"] = info["Info_Angebot"]
+        props["Info_Einstieg"] = info["Info_Einstieg"]
+        props["Info_Typ"] = info["Typ"]
+        props["Info_RB"] = info["Regierungsbezirk"]
+        props["Info_Partei"] = info["Partei"]
 
-        pop_num = row.get("Bevoelkerung_Num")
+        pop_num = info.get("Bevoelkerung_Num")
         if pd.notnull(pop_num):
             props["Info_Bevoelkerung"] = f"{int(pop_num):,}".replace(",", ".")
         else:
-            props["Info_Bevoelkerung"] = row.get("Bevoelkerung", "-")
+            props["Info_Bevoelkerung"] = info["Bevoelkerung"]
 
-        props["Im_Projekt"] = "Ja"
+        anz_proj = info["Anzahl_Projekte"]
+        props["Im_Projekt"] = f"Ja ({anz_proj} Modul{'e' if anz_proj > 1 else ''})"
     else:
         props["Info_Status"] = "Nicht erfasst"
         props["Info_Angebot"] = "-"
@@ -137,8 +196,10 @@ for feat in geojson_data["features"]:
         props["Info_Bevoelkerung"] = "-"
         props["Im_Projekt"] = "Nein"
 
-# Such- und Zentrierfunktion
-kommune_list = sorted(df["Kommune"].dropna().unique().tolist())
+# ==============================================================================
+# 2. Such- und Zentrierfunktion
+# ==============================================================================
+kommune_list = sorted(list({v["Kommune"] for v in data_by_ags.values() if v["Kommune"]}))
 search_kommune = st.sidebar.selectbox(
     "🔍 Kommune suchen & zentrieren:",
     ["(NRW Übersicht)"] + kommune_list,
@@ -149,9 +210,11 @@ center_loc = [51.45, 7.50]
 zoom_lvl = 8
 
 if search_kommune != "(NRW Übersicht)":
-    target_row = df[df["Kommune"] == search_kommune]
-    if not target_row.empty:
-        target_ags = target_row.iloc[0]["AGS"]
+    target_ags = next(
+        (k for k, v in data_by_ags.items() if v.get("Kommune") == search_kommune),
+        None,
+    )
+    if target_ags:
         for feat in geojson_data["features"]:
             if str(feat["properties"].get("AGS", "")).zfill(8) == target_ags:
                 geom = feat["geometry"]
@@ -182,7 +245,6 @@ def style_fn(feature):
             "weight": 3.0 if is_highlighted else 1.2,
             "fillOpacity": 0.85,
         }
-
     return {
         "fillColor": "#CBD5E1",
         "color": "#94A3B8",
@@ -194,7 +256,6 @@ def style_fn(feature):
 def highlight_fn(feature):
     props = feature.get("properties", {})
     ags = str(props.get("AGS", "")).strip().zfill(8)
-
     if ags in recorded_ags_set:
         return {
             "fillColor": "#26BDE2",
@@ -210,7 +271,9 @@ def highlight_fn(feature):
     }
 
 
-# Folium-Karte (OpenStreetMap ohne API-Key)
+# ==============================================================================
+# 3. Folium Karte
+# ==============================================================================
 m = folium.Map(location=center_loc, zoom_start=zoom_lvl, tiles="OpenStreetMap")
 
 tooltip_style = """
@@ -243,8 +306,8 @@ tooltip = folium.GeoJsonTooltip(
         "Bevölkerung:",
         "Partei:",
         "Beschluss:",
-        "Angebot:",
-        "Start:",
+        "Angebot(e):",
+        "Wunschstart(e):",
         "Typ:",
         "Regierungsbezirk:",
     ],
@@ -261,7 +324,9 @@ folium.GeoJson(
     tooltip=tooltip,
 ).add_to(m)
 
-# Layout: 65% Karte, 35% Dashboard & Diagramm
+# ==============================================================================
+# 4. Layout: Karte & Dashboard
+# ==============================================================================
 col_map, col_side = st.columns([65, 35])
 
 with col_map:
@@ -288,93 +353,96 @@ with col_side:
     )
 
     kpi1, kpi2 = st.columns(2)
-    kpi1.metric("Kommunen", len(df["Kommune"].unique()))
-    kpi2.metric("Anträge", len(df))
+    kpi1.metric("Kommunen", len(data_by_ags))
+    kpi2.metric("Projektanträge", total_applications_count)
 
-    if "Bevoelkerung_Num" in df.columns:
-        total_pop = df["Bevoelkerung_Num"].sum()
-        if pd.notnull(total_pop) and total_pop > 0:
-            st.metric("Erfasste Einwohner", f"{int(total_pop):,}".replace(",", "."))
+    unique_pop = (
+        df.drop_duplicates(subset=["AGS"])["Bevoelkerung_Num"].dropna().sum()
+    )
+    if unique_pop > 0:
+        st.metric("Erfasste Einwohner", f"{int(unique_pop):,}".replace(",", "."))
 
     st.markdown("---")
 
-    # Auswahlfeld: Welche Tabellenspalte soll im Diagramm visualisiert werden?
-    exclude_from_chart = ["AGS", "ARS", "Bevoelkerung_Num"]
-    chart_candidates = [c for c in df.columns if c not in exclude_from_chart]
-
-    # Vorauswahl bevorzugt auf Bevölkerung oder Regierungsbezirk setzen
-    default_idx = 0
-    if "Bevoelkerung" in chart_candidates:
-        default_idx = chart_candidates.index("Bevoelkerung")
-    elif "Regierungsbezirk" in chart_candidates:
-        default_idx = chart_candidates.index("Regierungsbezirk")
-
+    chart_candidates = [
+        c
+        for c in df.columns
+        if c not in ["AGS", "ARS", "Bevoelkerung_Num"]
+    ]
     selected_chart_col = st.selectbox(
         "📊 Diagramm-Inhalt auswählen:",
         options=chart_candidates,
-        index=default_idx,
+        index=chart_candidates.index("Angebot") if "Angebot" in chart_candidates else 0,
     )
 
-    # 1. Fall: Bevölkerung (metrische Auswertung je Kommune)
-    if any(x in selected_chart_col.upper() for x in ["BEVÖLKERUNG", "BEVOELKERUNG", "EINWOHNER"]):
-        df_chart = df.dropna(subset=["Bevoelkerung_Num"]).sort_values("Bevoelkerung_Num", ascending=True)
-        if not df_chart.empty:
-            fig = px.bar(
-                df_chart,
-                x="Bevoelkerung_Num",
-                y="Kommune",
-                orientation="h",
-                text="Bevoelkerung_Num",
-                color_discrete_sequence=["#00689D"],
-            )
-            fig.update_traces(
-                texttemplate="%{text:,.0f}",
-                textposition="outside",
-                cliponaxis=False,
-            )
-            fig.update_layout(
-                height=max(400, len(df_chart) * 20),
-                margin=dict(l=0, r=45, t=10, b=10),
-                xaxis_title="",
-                yaxis_title="",
-                xaxis=dict(showticklabels=False, showgrid=False),
-                yaxis=dict(tickfont=dict(size=11)),
-            )
-            st.plotly_chart(fig, use_container_width=True)
+    # A. Fall: Bevölkerung (eindeutige Kommunen)
+    if any(
+        x in selected_chart_col.upper()
+        for x in ["BEVÖLKERUNG", "BEVOELKERUNG", "EINWOHNER"]
+    ):
+        df_chart = (
+            df.drop_duplicates(subset=["AGS"])
+            .dropna(subset=["Bevoelkerung_Num"])
+            .sort_values("Bevoelkerung_Num", ascending=True)
+        )
+        fig = px.bar(
+            df_chart,
+            x="Bevoelkerung_Num",
+            y="Kommune",
+            orientation="h",
+            text="Bevoelkerung_Num",
+            color_discrete_sequence=["#00689D"],
+        )
+        fig.update_traces(
+            texttemplate="%{text:,.0f}",
+            textposition="outside",
+            cliponaxis=False,
+        )
+        fig.update_layout(
+            height=max(400, len(df_chart) * 20),
+            margin=dict(l=0, r=45, t=10, b=10),
+            xaxis=dict(showticklabels=False, showgrid=False),
+            yaxis=dict(tickfont=dict(size=11)),
+        )
+        st.plotly_chart(fig, use_container_width=True)
 
-    # 2. Fall: Kategoriale Variable (Häufigkeitsverteilung)
+    # B. Fall: Kategoriale Variablen (Mehrfachnennungen aufdröseln)
     else:
-        df_sub = df.dropna(subset=[selected_chart_col]).copy()
-        if not df_sub.empty:
-            counts = (
-                df_sub[selected_chart_col]
-                .value_counts()
-                .reset_index()
-            )
-            counts.columns = [selected_chart_col, "Anzahl"]
-            counts = counts.sort_values(by="Anzahl", ascending=True)
+        series_split = (
+            df[selected_chart_col]
+            .dropna()
+            .astype(str)
+            .str.split(";")
+            .explode()
+            .str.strip()
+        )
+        series_split = series_split[series_split != ""]
 
-            fig = px.bar(
-                counts,
-                x="Anzahl",
-                y=selected_chart_col,
-                orientation="h",
-                text="Anzahl",
-                color_discrete_sequence=["#00689D"],
-            )
-            fig.update_traces(textposition="outside")
-            fig.update_layout(
-                height=max(320, len(counts) * 32),
-                margin=dict(l=0, r=30, t=10, b=10),
-                xaxis_title="Fallzahl",
-                yaxis_title="",
-                yaxis=dict(tickfont=dict(size=11)),
-            )
-            st.plotly_chart(fig, use_container_width=True)
-        else:
-            st.info("Keine Daten für dieses Merkmal vorhanden.")
+        counts = series_split.value_counts().reset_index()
+        counts.columns = [selected_chart_col, "Anzahl"]
+        counts = counts.sort_values(by="Anzahl", ascending=True)
 
-# Factsheet bei Klick auf ein Polygon
+        fig = px.bar(
+            counts,
+            x="Anzahl",
+            y=selected_chart_col,
+            orientation="h",
+            text="Anzahl",
+            color_discrete_sequence=["#00689D"],
+        )
+        fig.update_traces(textposition="outside")
+        fig.update_layout(
+            height=max(320, len(counts) * 32),
+            margin=dict(l=0, r=30, t=10, b=10),
+            xaxis_title="Fallzahl / Nennungen",
+            yaxis_title="",
+            yaxis=dict(tickfont=dict(size=11)),
+        )
+        st.plotly_chart(fig, use_container_width=True)
+
+# ==============================================================================
+# 5. Factsheet bei Klick auf ein Polygon
+# ==============================================================================
 clicked_feature = map_output.get("last_active_drawing") if map_output else None
 if clicked_feature:
     clicked_props = clicked_feature.get("properties", {})
@@ -392,7 +460,14 @@ if clicked_feature:
             st.markdown(f"<span style='font-size: 13px;'><b>Partei:</b> {details.get('Partei', '-')}</span>", unsafe_allow_html=True)
         with c3:
             st.markdown(f"<span style='font-size: 13px;'><b>BBSR-Einordnung:</b> {details.get('BBSR_Einordnung', '-') or '-'}</span>", unsafe_allow_html=True)
-            st.markdown(f"<span style='font-size: 13px;'><b>Beschlussstatus:</b> {details.get('Status_Beschluss', '-')}</span>", unsafe_allow_html=True)
+            st.markdown(f"<span style='font-size: 13px;'><b>Beschluss:</b> {details.get('Status_Beschluss', '-')}</span>", unsafe_allow_html=True)
         with c4:
-            st.markdown(f"<span style='font-size: 13px;'><b>Projektangebot:</b> {details.get('Angebot', '-')}</span>", unsafe_allow_html=True)
-            st.markdown(f"<span style='font-size: 13px;'><b>Einstieg:</b> {details.get('Einstiegszeitpunkt', '-') or '-'}</span>", unsafe_allow_html=True)
+            st.markdown(f"<span style='font-size: 13px;'><b>Bewerbungen ({details['Anzahl_Projekte']}):</b></span>", unsafe_allow_html=True)
+            if details["Angebote_Paare"]:
+                for item in details["Angebote_Paare"]:
+                    st.markdown(
+                        f"<span style='font-size: 12px;'>• <b>{item['angebot']}</b><br>&nbsp;&nbsp;<i>Start: {item['start']}</i></span>",
+                        unsafe_allow_html=True,
+                    )
+            else:
+                st.markdown("<span style='font-size: 12px;'>-</span>", unsafe_allow_html=True)
