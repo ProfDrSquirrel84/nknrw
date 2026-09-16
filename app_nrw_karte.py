@@ -406,7 +406,7 @@ if search_kommune != "(Übersicht)":
 def style_fn_gemeinden_bg(feature):
     return {
         "fillColor": "transparent",
-        "color": "#cbd5e1",      # Sehr dezentes Grau für die Hintergrund-Gemeindegrenzen
+        "color": "#000000",      # Sehr dezentes Grau für die Hintergrund-Gemeindegrenzen
         "weight": 0.8,           # Feine Linienstärke
         "fillOpacity": 0.0,
     }
