@@ -14,8 +14,15 @@ DATA_PATH = BASE_DIR / "daten.csv"
 GEOJSON_GEMEINDEN = BASE_DIR / "nrw_gemeinden.geojson"
 GEOJSON_KREISE = BASE_DIR / "nrw_kreise.geojson"
 
-# Fallback-URL für GitHub (falls die Datei remote nachgeladen werden soll)
 GITHUB_KREISE_RAW_URL = "https://raw.githubusercontent.com/<DEIN_GITHUB_USER>/<DEIN_REPO>/main/nrw_kreise.geojson"
+
+
+def clean_val(val, default="-"):
+    """Verhindert, dass NaN/None-Werte Folium/Leaflet zum Absturz bringen."""
+    if val is None or pd.isna(val):
+        return default
+    s = str(val).strip()
+    return default if s in ("", "nan", "None", "<NA>") else s
 
 
 # ==============================================================================
@@ -31,11 +38,7 @@ def load_data():
         df = pd.read_csv(DATA_PATH, sep=";", dtype=str, encoding="utf-8")
         if df.shape[1] == 1:
             df = pd.read_csv(
-                DATA_PATH,
-                sep=None,
-                engine="python",
-                dtype=str,
-                encoding="utf-8",
+                DATA_PATH, sep=None, engine="python", dtype=str, encoding="utf-8"
             )
     except Exception:
         df = pd.read_csv(
@@ -50,7 +53,6 @@ def load_data():
         st.stop()
 
     df = df.rename(columns={ags_col: "AGS"})
-    # AGS als Ziffernfolge ohne führende Nullen für einen robusten Match
     df["AGS_MATCH"] = (
         df["AGS"].astype(str).str.extract(r"(\d+)")[0].dropna().str.lstrip("0")
     )
@@ -104,6 +106,11 @@ def load_geojsons():
     with open(GEOJSON_GEMEINDEN, "r", encoding="utf-8") as f:
         gemeinden_data = json.load(f)
 
+    # Gültige Geometrien sicherstellen
+    gemeinden_data["features"] = [
+        feat for feat in gemeinden_data.get("features", []) if feat.get("geometry")
+    ]
+
     kreise_data = None
     if GEOJSON_KREISE.is_file():
         with open(GEOJSON_KREISE, "r", encoding="utf-8") as f:
@@ -115,6 +122,11 @@ def load_geojsons():
                 kreise_data = resp.json()
         except Exception:
             kreise_data = None
+
+    if kreise_data:
+        kreise_data["features"] = [
+            feat for feat in kreise_data.get("features", []) if feat.get("geometry")
+        ]
 
     return gemeinden_data, kreise_data
 
@@ -133,23 +145,22 @@ total_applications_count = 0
 for _, row in df.iterrows():
     match_key = str(row["AGS_MATCH"]).strip()
 
-    raw_ang = str(row.get("Angebot", "")).strip()
-    raw_start = str(row.get("Einstiegszeitpunkt", "")).strip()
+    raw_ang = clean_val(row.get("Angebot"))
+    raw_start = clean_val(row.get("Einstiegszeitpunkt"))
 
     ang_list = [
         a.strip()
         for a in raw_ang.split(";")
-        if a.strip() and a.strip() != "nan"
+        if a.strip() and a.strip() not in ("-", "nan")
     ]
     start_list = [
         s.strip()
         for s in raw_start.split(";")
-        if s.strip() and s.strip() != "nan"
+        if s.strip() and s.strip() not in ("-", "nan")
     ]
 
     paired_offers = []
 
-    # 1 Angebot mit mehreren alternativen Terminen
     if len(ang_list) == 1 and len(start_list) > 1:
         alt_starts = " oder ".join(start_list)
         paired_offers.append({
@@ -157,7 +168,6 @@ for _, row in df.iterrows():
             "start": f"{alt_starts} (alternativ)",
         })
         total_applications_count += 1
-    # Mehrere Angebote und Termine (1:1 Zuordnung)
     elif len(ang_list) > 1 and len(start_list) == len(ang_list):
         for ang, st_time in zip(ang_list, start_list):
             paired_offers.append({
@@ -165,7 +175,6 @@ for _, row in df.iterrows():
                 "start": st_time,
             })
         total_applications_count += len(ang_list)
-    # Asymmetrisch oder einfacher Fall
     elif ang_list:
         for idx, ang in enumerate(ang_list):
             st_val = (
@@ -182,22 +191,22 @@ for _, row in df.iterrows():
         total_applications_count += 1
 
     data_by_match_key[match_key] = {
-        "Kommune": row.get("Kommune"),
-        "Kreis": row.get("Kreis", "-"),
-        "Typ": row.get("Typ", "-"),
-        "Regierungsbezirk": row.get("Regierungsbezirk", "-"),
-        "Bevölkerung": row.get("Bevölkerung", "-"),
+        "Kommune": clean_val(row.get("Kommune")),
+        "Kreis": clean_val(row.get("Kreis")),
+        "Typ": clean_val(row.get("Typ")),
+        "Regierungsbezirk": clean_val(row.get("Regierungsbezirk")),
+        "Bevölkerung": clean_val(row.get("Bevölkerung")),
         "Bevoelkerung_Num": row.get("Bevoelkerung_Num"),
-        "Gemeindegrößenklasse": row.get("Gemeindegrößenklasse", "-"),
-        "Partei": row.get("Partei", "-"),
-        "Zentralörtliche Einstufung": row.get("Zentralörtliche Einstufung", "-"),
-        "Beschluss NKNRW": row.get("Beschluss NKNRW", "-"),
-        "Vorerfahrung": row.get("Vorerfahrung", "-"),
+        "Gemeindegrößenklasse": clean_val(row.get("Gemeindegrößenklasse")),
+        "Partei": clean_val(row.get("Partei")),
+        "Zentralörtliche Einstufung": clean_val(row.get("Zentralörtliche Einstufung")),
+        "Beschluss NKNRW": clean_val(row.get("Beschluss NKNRW")),
+        "Vorerfahrung": clean_val(row.get("Vorerfahrung")),
         "Info_Angebot": " | ".join(ang_list) if ang_list else "-",
         "Info_Einstieg": " / ".join(start_list) if start_list else "-",
         "Angebote_Paare": paired_offers,
         "Anzahl_Projekte": len(paired_offers) if paired_offers else 1,
-        "Row_Data": row.to_dict(),
+        "Row_Data": {k: clean_val(v) for k, v in row.to_dict().items()},
     }
 
 recorded_keys_set = set(data_by_match_key.keys())
@@ -230,18 +239,18 @@ selected_chart_col = st.sidebar.selectbox(
 )
 
 PALETTE = [
-    "#00689D",  # Dunkelblau
-    "#4C9F38",  # Grün
-    "#FD9D24",  # Orange
-    "#DD1367",  # Magenta
-    "#26BDE2",  # Hellblau
-    "#FCC30B",  # Gelb
-    "#A21942",  # Weinrot
-    "#FD6925",  # Dunkelorange
-    "#3F7E44",  # Waldgrün
-    "#8B5CF6",  # Violett
-    "#06B6D4",  # Türkis
-    "#64748B",  # Schiefergrau
+    "#00689D",
+    "#4C9F38",
+    "#FD9D24",
+    "#DD1367",
+    "#26BDE2",
+    "#FCC30B",
+    "#A21942",
+    "#FD6925",
+    "#3F7E44",
+    "#8B5CF6",
+    "#06B6D4",
+    "#64748B",
 ]
 
 all_vals = (
@@ -252,18 +261,22 @@ all_vals = (
     .explode()
     .str.strip()
 )
-unique_categories = sorted([v for v in all_vals.unique() if v and v != "nan"])
+unique_categories = sorted([v for v in all_vals.unique() if v and v not in ("nan", "-")])
 color_map = {
     val: PALETTE[i % len(PALETTE)] for i, val in enumerate(unique_categories)
 }
 
 # ==============================================================================
-# 4. GeoJSON-Properties anreichern
+# 4. GeoJSON-Properties anreichern (Garantiert keine NaN/None Werte!)
 # ==============================================================================
 def enrich_features(features):
     for feat in features:
-        props = feat["properties"]
-        raw_code = str(props.get("AGS") or props.get("AGS_0", "")).strip()
+        props = feat.setdefault("properties", {})
+        
+        # Name für den Tooltip absichern
+        props["GEN"] = clean_val(props.get("GEN") or props.get("NAME") or props.get("BEZ"), "Unbekannt")
+
+        raw_code = str(props.get("AGS") or props.get("AGS_0") or "")
         match_key = "".join(filter(str.isdigit, raw_code)).lstrip("0")
         props["MATCH_KEY"] = match_key
 
@@ -272,29 +285,29 @@ def enrich_features(features):
             props["Im_Projekt"] = (
                 f"Ja ({info['Anzahl_Projekte']} Modul{'e' if info['Anzahl_Projekte'] > 1 else ''})"
             )
-            props["Info_Status"] = info.get("Beschluss NKNRW", "-")
-            props["Info_Angebot"] = info.get("Info_Angebot", "-")
-            props["Info_Einstieg"] = info.get("Info_Einstieg", "-")
-            props["Info_Typ"] = info.get("Typ", "-")
-            props["Info_RB"] = info.get("Regierungsbezirk", "-")
-            props["Info_Partei"] = info.get("Partei", "-")
-            props["Info_Klasse"] = info.get("Gemeindegrößenklasse", "-")
-            props["Info_Zentral"] = info.get("Zentralörtliche Einstufung", "-")
+            props["Info_Status"] = clean_val(info.get("Beschluss NKNRW"))
+            props["Info_Angebot"] = clean_val(info.get("Info_Angebot"))
+            props["Info_Einstieg"] = clean_val(info.get("Info_Einstieg"))
+            props["Info_Typ"] = clean_val(info.get("Typ"))
+            props["Info_RB"] = clean_val(info.get("Regierungsbezirk"))
+            props["Info_Partei"] = clean_val(info.get("Partei"))
+            props["Info_Klasse"] = clean_val(info.get("Gemeindegrößenklasse"))
+            props["Info_Zentral"] = clean_val(info.get("Zentralörtliche Einstufung"))
 
             pop_num = info.get("Bevoelkerung_Num")
             if pd.notnull(pop_num):
                 props["Info_Bevoelkerung"] = f"{int(pop_num):,}".replace(",", ".")
             else:
-                props["Info_Bevoelkerung"] = info.get("Bevölkerung", "-")
+                props["Info_Bevoelkerung"] = clean_val(info.get("Bevölkerung"))
 
-            raw_val = str(info["Row_Data"].get(selected_chart_col, "-")).strip()
+            raw_val = clean_val(info["Row_Data"].get(selected_chart_col))
             first_val = (
                 [x.strip() for x in raw_val.split(";") if x.strip()][0]
                 if ";" in raw_val
                 else raw_val
             )
             props["Selected_Category"] = first_val
-            props["Has_Data"] = True
+            props["Has_Data"] = "1"
         else:
             props["Im_Projekt"] = "Nein"
             props["Info_Status"] = "Nicht erfasst"
@@ -306,8 +319,9 @@ def enrich_features(features):
             props["Info_Klasse"] = "-"
             props["Info_Zentral"] = "-"
             props["Info_Bevoelkerung"] = "-"
-            props["Selected_Category"] = None
-            props["Has_Data"] = False
+            props["Selected_Category"] = ""
+            props["Has_Data"] = "0"
+
 
 enrich_features(geojson_data["features"])
 if geojson_kreise:
@@ -335,24 +349,23 @@ if search_kommune != "(NRW Übersicht)":
         None,
     )
     if target_entry:
-        target_key = str(target_entry["Row_Data"]["AGS_MATCH"]).strip()
+        target_key = str(target_entry["Row_Data"].get("AGS_MATCH", "")).strip()
         all_features = (geojson_kreise["features"] if geojson_kreise else []) + geojson_data["features"]
         for feat in all_features:
-            if feat["properties"].get("MATCH_KEY") == target_key:
-                geom = feat["geometry"]
-                coords = (
-                    geom["coordinates"][0]
-                    if geom["type"] == "Polygon"
-                    else geom["coordinates"][0][0]
-                )
-                avg_lat = sum(pt[1] for pt in coords) / len(coords)
-                avg_lon = sum(pt[0] for pt in coords) / len(coords)
-                center_loc = [avg_lat, avg_lon]
-                zoom_lvl = 9 if "kreis" in str(target_entry.get("Typ", "")).lower() else 11
+            if feat.get("properties", {}).get("MATCH_KEY") == target_key:
+                geom = feat.get("geometry", {})
+                coords = geom.get("coordinates", [])
+                if coords:
+                    poly_pts = coords[0] if geom.get("type") == "Polygon" else coords[0][0]
+                    avg_lat = sum(pt[1] for pt in poly_pts) / len(poly_pts)
+                    avg_lon = sum(pt[0] for pt in poly_pts) / len(poly_pts)
+                    center_loc = [avg_lat, avg_lon]
+                    zoom_lvl = 9 if "kreis" in str(target_entry.get("Typ", "")).lower() else 11
                 break
 
+
 # ==============================================================================
-# 5. Styling & Tooltip
+# 5. Styling & Map
 # ==============================================================================
 def style_fn_gemeinden(feature):
     props = feature.get("properties", {})
@@ -404,10 +417,11 @@ def style_fn_kreise(feature):
         }
 
     return {
-        "fillColor": "transparent",
-        "color": "transparent",
+        "fillColor": "#000000",
+        "color": "#000000",
         "weight": 0,
         "fillOpacity": 0,
+        "opacity": 0,
     }
 
 
@@ -431,10 +445,11 @@ def highlight_fn_kreise(feature):
             "fillOpacity": 0.95,
         }
     return {
-        "fillColor": "transparent",
-        "color": "transparent",
+        "fillColor": "#000000",
+        "color": "#000000",
         "weight": 0,
         "fillOpacity": 0,
+        "opacity": 0,
     }
 
 
@@ -502,7 +517,7 @@ if geojson_kreise:
     ).add_to(m)
 
 # ==============================================================================
-# 6. Layout: Karte & Diagramm
+# 6. Layout: Karte & Dashboard
 # ==============================================================================
 col_map, col_side = st.columns([65, 35])
 
