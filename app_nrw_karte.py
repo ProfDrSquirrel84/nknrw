@@ -84,7 +84,7 @@ def load_data():
     if "Bevölkerung" in df.columns:
         df["Bevoelkerung_Num"] = df["Bevölkerung"].apply(parse_pop)
 
-    # Beschluss-Spalte sauber identifizieren (z. B. "Beschluss NKNRW" oder "Beschluss, NKNRW")
+    # Beschluss-Spalte sauber identifizieren
     beschluss_col = next(
         (c for c in df.columns if "BESCHLUSS" in c.upper()),
         None,
@@ -110,10 +110,9 @@ geojson_data = load_geojson()
 st.title("🗺️ NRW-Kommunen: Übersicht & Beteiligung")
 
 # ==============================================================================
-# 2. Aggregation, Semikolon-Paarung & Kreis-Mapping
+# 2. Aggregation & Semikolon-Paarung (ausschließlich auf 8-stelligem AGS)
 # ==============================================================================
 data_by_ags = {}
-kreis_lookup = {}
 total_applications_count = 0
 
 for _, row in df.iterrows():
@@ -169,7 +168,7 @@ for _, row in df.iterrows():
     else:
         total_applications_count += 1
 
-    entry = {
+    data_by_ags[ags] = {
         "Kommune": row.get("Kommune"),
         "Kreis": row.get("Kreis", "-"),
         "Typ": row.get("Typ", "-"),
@@ -186,18 +185,12 @@ for _, row in df.iterrows():
         "Angebote_Paare": paired_offers,
         "Anzahl_Projekte": len(paired_offers) if paired_offers else 1,
         "Row_Data": row.to_dict(),
-        "Is_Kreis": (
-            "kreis" in str(row.get("Typ", "")).lower() or ags.endswith("000")
-        ),
     }
 
-    data_by_ags[ags] = entry
-
-    if entry["Is_Kreis"]:
-        kreis_lookup[ags[:5]] = entry
+recorded_ags_set = set(data_by_ags.keys())
 
 # ==============================================================================
-# 3. Exakt definierte Variablenauswahl für Diagramm & Kartenfärbung
+# 3. Variablenauswahl für Diagramm & synchrone Kartenfärbung
 # ==============================================================================
 allowed_vars = [
     "Kreis",
@@ -212,7 +205,6 @@ allowed_vars = [
     "Vorerfahrung",
 ]
 
-# Nur Variablen anzeigen, die auch tatsächlich im DataFrame existieren
 chart_candidates = [v for v in allowed_vars if v in df.columns]
 
 selected_chart_col = st.sidebar.selectbox(
@@ -238,7 +230,6 @@ PALETTE = [
     "#64748B",  # Schiefergrau
 ]
 
-# Farbzuordnung pro Ausprägung (inkl. gesplitteter Semikolon-Einträge)
 all_vals = (
     df[selected_chart_col]
     .dropna()
@@ -253,31 +244,17 @@ color_map = {
 }
 
 # ==============================================================================
-# 4. GeoJSON-Properties anreichern (mit Kreis-Fallback)
+# 4. GeoJSON-Properties anreichern (ausschließlich exakter AGS-Match)
 # ==============================================================================
 for feat in geojson_data["features"]:
     props = feat["properties"]
     ags = str(props.get("AGS", "")).strip().zfill(8)
-    kreis_prefix = ags[:5]
 
     if ags in data_by_ags:
         info = data_by_ags[ags]
         props["Im_Projekt"] = (
             f"Ja ({info['Anzahl_Projekte']} Modul{'e' if info['Anzahl_Projekte'] > 1 else ''})"
         )
-        props["Match_AGS"] = ags
-        props["Beteiligungs_Typ"] = "Gemeinde direkt"
-    elif kreis_prefix in kreis_lookup:
-        info = kreis_lookup[kreis_prefix]
-        props["Im_Projekt"] = f"Ja (über {info['Kommune']})"
-        props["Match_AGS"] = kreis_prefix + "000"
-        props["Beteiligungs_Typ"] = f"Kreisweit ({info['Kommune']})"
-    else:
-        info = None
-        props["Match_AGS"] = None
-        props["Beteiligungs_Typ"] = "Keine Teilnahme"
-
-    if info:
         props["Info_Status"] = info.get("Beschluss NKNRW", "-")
         props["Info_Angebot"] = info.get("Info_Angebot", "-")
         props["Info_Einstieg"] = info.get("Info_Einstieg", "-")
@@ -301,6 +278,7 @@ for feat in geojson_data["features"]:
         )
         props["Selected_Category"] = first_val
     else:
+        props["Im_Projekt"] = "Nein"
         props["Info_Status"] = "Nicht erfasst"
         props["Info_Angebot"] = "-"
         props["Info_Einstieg"] = "-"
@@ -310,7 +288,6 @@ for feat in geojson_data["features"]:
         props["Info_Klasse"] = "-"
         props["Info_Zentral"] = "-"
         props["Info_Bevoelkerung"] = "-"
-        props["Im_Projekt"] = "Nein"
         props["Selected_Category"] = None
 
 # Such- und Zentrierfunktion
@@ -318,7 +295,7 @@ kommune_list = sorted(
     list({v["Kommune"] for v in data_by_ags.values() if v["Kommune"]})
 )
 search_kommune = st.sidebar.selectbox(
-    "🔍 Kommune / Kreis suchen & zentrieren:",
+    "🔍 Kommune suchen & zentrieren:",
     ["(NRW Übersicht)"] + kommune_list,
     index=0,
 )
@@ -333,30 +310,20 @@ if search_kommune != "(NRW Übersicht)":
     )
     if target_entry:
         target_ags = str(target_entry["Row_Data"]["AGS"]).zfill(8)
-        target_prefix = target_ags[:5]
-
-        all_lats, all_lons = [], []
         for feat in geojson_data["features"]:
             feat_ags = str(feat["properties"].get("AGS", "")).zfill(8)
-            is_match = (
-                (feat_ags == target_ags)
-                if not target_entry["Is_Kreis"]
-                else (feat_ags[:5] == target_prefix)
-            )
-
-            if is_match:
+            if feat_ags == target_ags:
                 geom = feat["geometry"]
                 coords = (
                     geom["coordinates"][0]
                     if geom["type"] == "Polygon"
                     else geom["coordinates"][0][0]
                 )
-                all_lats.extend([pt[1] for pt in coords])
-                all_lons.extend([pt[0] for pt in coords])
-
-        if all_lats:
-            center_loc = [sum(all_lats) / len(all_lats), sum(all_lons) / len(all_lons)]
-            zoom_lvl = 9 if target_entry["Is_Kreis"] else 11
+                avg_lat = sum(pt[1] for pt in coords) / len(coords)
+                avg_lon = sum(pt[0] for pt in coords) / len(coords)
+                center_loc = [avg_lat, avg_lon]
+                zoom_lvl = 11
+                break
 
 
 # ==============================================================================
@@ -364,10 +331,10 @@ if search_kommune != "(NRW Übersicht)":
 # ==============================================================================
 def style_fn(feature):
     props = feature.get("properties", {})
-    match_ags = props.get("Match_AGS")
+    ags = str(props.get("AGS", "")).strip().zfill(8)
 
-    if match_ags:
-        target_info = data_by_ags.get(match_ags)
+    if ags in recorded_ags_set:
+        target_info = data_by_ags.get(ags)
         is_highlighted = (
             search_kommune != "(NRW Übersicht)"
             and target_info
@@ -376,13 +343,12 @@ def style_fn(feature):
 
         cat = props.get("Selected_Category")
         fill = color_map.get(cat, "#00689D")
-        opacity = 0.70 if props.get("Beteiligungs_Typ", "").startswith("Kreis") else 0.85
 
         return {
             "fillColor": fill,
             "color": "#FFD700" if is_highlighted else "#0F2942",
             "weight": 3.0 if is_highlighted else 1.2,
-            "fillOpacity": opacity,
+            "fillOpacity": 0.85,
         }
     return {
         "fillColor": "#CBD5E1",
@@ -394,7 +360,8 @@ def style_fn(feature):
 
 def highlight_fn(feature):
     props = feature.get("properties", {})
-    if props.get("Match_AGS"):
+    ags = str(props.get("AGS", "")).strip().zfill(8)
+    if ags in recorded_ags_set:
         return {
             "fillColor": "#26BDE2",
             "color": "#0F2942",
@@ -438,7 +405,7 @@ tooltip = folium.GeoJsonTooltip(
         "Info_RB",
     ],
     aliases=[
-        "Kommune / Gebiet:",
+        "Kommune:",
         "Projektbeteiligung:",
         "Bevölkerung:",
         "Größenklasse:",
@@ -482,7 +449,7 @@ with col_side:
         '<div style="display:flex; align-items:center; margin-bottom:6px;">'
         '<div style="background-color:#00689D; width:15px; height:15px;'
         ' border-radius:3px; margin-right:8px; flex-shrink:0;"></div><span'
-        ' style="font-size:13px; line-height:1.2;"><b>Erfasste Einheit (Kommune / Kreis)</b></span></div>',
+        ' style="font-size:13px; line-height:1.2;"><b>Erfasste Kommune</b></span></div>',
         unsafe_allow_html=True,
     )
     st.markdown(
@@ -548,15 +515,12 @@ with col_side:
 clicked_feature = map_output.get("last_active_drawing") if map_output else None
 if clicked_feature:
     clicked_props = clicked_feature.get("properties", {})
-    matched_ags = clicked_props.get("Match_AGS")
+    clicked_ags = str(clicked_props.get("AGS", "")).strip().zfill(8)
 
-    if matched_ags and matched_ags in data_by_ags:
-        details = data_by_ags[matched_ags]
-        beteiligungs_art = clicked_props.get("Beteiligungs_Typ", "Direkte Teilnahme")
+    if clicked_ags in data_by_ags:
+        details = data_by_ags[clicked_ags]
 
-        st.info(
-            f"### 📍 Factsheet: {details.get('Kommune')} ({beteiligungs_art}) — Ausgewählt: {clicked_props.get('GEN', '')}"
-        )
+        st.info(f"### 📍 Factsheet: {details.get('Kommune')}")
         c1, c2, c3, c4 = st.columns(4)
         with c1:
             st.markdown(f"<span style='font-size: 13px;'><b>Typ:</b> {details.get('Typ', '-')}</span>", unsafe_allow_html=True)
