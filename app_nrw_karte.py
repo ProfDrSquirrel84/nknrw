@@ -271,7 +271,7 @@ with col_side:
     st.markdown(
         '<div style="display:flex; align-items:center; margin-bottom:10px;">'
         '<div style="background-color:#00689D; width:18px; height:18px; border-radius:3px; margin-right:8px; flex-shrink:0;"></div>'
-        '<span style="font-size:14px; line-height:1.2;"><b>Erfasste Kommune</b></span></div>',
+        '<span style="font-size:14px; line-height:1.2;"><b>Bewerber-Kommune</b></span></div>',
         unsafe_allow_html=True,
     )
     st.markdown(
