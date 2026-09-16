@@ -424,7 +424,7 @@ def style_fn_gemeinden_bg(feature):
     return {
         "fillColor": "transparent",
         "color": "#000000",
-        "weight": 0.5,
+        "weight": 1.0,
         "fillOpacity": 0.0,
     }
 
