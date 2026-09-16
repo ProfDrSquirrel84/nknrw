@@ -102,7 +102,7 @@ df_raw = load_data()
 # ==============================================================================
 # 2. Interaktive Auswahlfilter in der Sidebar
 # ==============================================================================
-st.sidebar.markdown("### 🎯 Filter & Steuerung")
+st.sidebar.markdown("### Filter & Steuerung")
 
 all_available_units = sorted(list(df_raw["Kommune"].dropna().unique()))
 selected_units = st.sidebar.multiselect(
@@ -196,7 +196,6 @@ for _, row in df.iterrows():
     else:
         total_applications_count += 1
 
-    # Erkennung von Mehrfachangaben (mehr als 1 Angebot oder mehr als 1 Starttermin)
     is_multi = (len(ang_list) > 1 or len(start_list) > 1)
     multi_badge = f"🔄 Mehrfachangabe ({len(ang_list)} Angebote / {len(start_list)} Starttermine)" if is_multi else "Standard"
 
@@ -289,7 +288,7 @@ allowed_vars = [
 chart_candidates = [v for v in allowed_vars if v in df_raw.columns]
 
 selected_chart_col = st.sidebar.selectbox(
-    "📊 Variable für Diagramm & Kartenfärbung:",
+    "Variable für Diagramm & Kartenfärbung:",
     options=chart_candidates,
     index=(
         chart_candidates.index("Angebot") if "Angebot" in chart_candidates else 0
@@ -413,7 +412,7 @@ if search_kommune != "(Übersicht)":
                 break
 
 # ==============================================================================
-# 7. Styling & Leaflet-Karte (Verstärkte Outline für Mehrfachangaben)
+# 7. Styling & Leaflet-Karte (Dezente, angenehme Outline für Mehrfachangaben)
 # ==============================================================================
 def style_fn_gemeinden(feature):
     props = feature.get("properties", {})
@@ -427,10 +426,11 @@ def style_fn_gemeinden(feature):
     cat = props.get("Selected_Category")
     fill = color_map.get(cat, "#00689D")
     
+    # Angenehme, moderate Stärke für Mehrfachangaben (2.5 statt 5.0)
     is_multi = props.get("Is_Multi", False)
-    weight = 5.0 if is_multi else 1.3
+    weight = 2.8 if is_multi else 1.3
     if is_highlighted:
-        weight = 2.0
+        weight = 4.5
 
     return {
         "fillColor": fill,
@@ -453,9 +453,9 @@ def style_fn_kreise(feature):
     fill = color_map.get(cat, "#00689D")
     
     is_multi = props.get("Is_Multi", False)
-    weight = 4.0 if is_multi else 1.5
+    weight = 2.5 if is_multi else 1.5
     if is_highlighted:
-        weight = 5.0
+        weight = 3.5
 
     return {
         "fillColor": fill,
@@ -472,7 +472,7 @@ def highlight_fn_gemeinden(feature):
     return {
         "fillColor": "#26BDE2",
         "color": "#0F2942",
-        "weight": 5.5 if is_multi else 2.8,
+        "weight": 3.5 if is_multi else 2.8,
         "fillOpacity": 0.95,
     }
 
@@ -483,7 +483,7 @@ def highlight_fn_kreise(feature):
     return {
         "fillColor": "#26BDE2",
         "color": "#0F2942",
-        "weight": 4.5 if is_multi else 2.5,
+        "weight": 3.0 if is_multi else 2.5,
         "dashArray": "4, 4",
         "fillOpacity": 0.55,
     }
@@ -559,7 +559,7 @@ if geojson_data and geojson_data["features"]:
 # ==============================================================================
 # 8. Hauptlayout: Karte links, Übersicht & Diagramm rechts nebeneinander
 # ==============================================================================
-st.title("Bewerber-Kommunen: Räumliche Verteilung")
+st.title("Bewerber-Kommunen: Räumliche Übersicht")
 
 col_map, col_side = st.columns([60, 40])
 
