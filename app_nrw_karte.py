@@ -58,6 +58,25 @@ def load_data():
         )
         df["Kommune"] = df[kom_col] if kom_col else df["AGS"]
 
+    # Spalten für Bevölkerung und Partei flexibel matchen
+    bev_col = next(
+        (
+            c
+            for c in df.columns
+            if any(x in c.upper() for x in ["BEVÖLKERUNG", "BEVOELKERUNG", "EINWOHNER"])
+        ),
+        None,
+    )
+    if bev_col and bev_col != "Bevoelkerung":
+        df["Bevoelkerung"] = df[bev_col]
+
+    partei_col = next(
+        (c for c in df.columns if "PARTEI" in c.upper()),
+        None,
+    )
+    if partei_col and partei_col != "Partei":
+        df["Partei"] = df[partei_col]
+
     return df
 
 
@@ -91,6 +110,16 @@ for feat in geojson_data["features"]:
         props["Info_Einstieg"] = row.get("Einstiegszeitpunkt", "-")
         props["Info_Typ"] = row.get("Typ", "-")
         props["Info_RB"] = row.get("Regierungsbezirk", "-")
+        props["Info_Partei"] = row.get("Partei", "-")
+
+        # Tausender-Formatierung der Einwohnerzahl sicherstellen
+        raw_bev = str(row.get("Bevoelkerung", "-")).strip()
+        digits_bev = "".join(filter(str.isdigit, raw_bev))
+        if digits_bev:
+            props["Info_Bevoelkerung"] = f"{int(digits_bev):,}".replace(",", ".")
+        else:
+            props["Info_Bevoelkerung"] = raw_bev if raw_bev != "" else "-"
+
         props["Im_Projekt"] = "Ja"
     else:
         props["Info_Status"] = "Nicht erfasst"
@@ -98,6 +127,8 @@ for feat in geojson_data["features"]:
         props["Info_Einstieg"] = "-"
         props["Info_Typ"] = "-"
         props["Info_RB"] = "-"
+        props["Info_Partei"] = "-"
+        props["Info_Bevoelkerung"] = "-"
         props["Im_Projekt"] = "Nein"
 
 # Such- und Zentrierfunktion in der Sidebar
@@ -134,7 +165,7 @@ def style_fn(feature):
     props = feature.get("properties", {})
     ags = str(props.get("AGS", "")).strip().zfill(8)
 
-    # Erfasste Kommunen im Projekt
+    # Erfasste Kommunen
     if ags in recorded_ags_set:
         is_highlighted = (
             search_kommune != "(NRW Übersicht)"
@@ -147,7 +178,7 @@ def style_fn(feature):
             "fillOpacity": 0.85,
         }
 
-    # Nicht erfasste Kommunen (hellgrau, transparent)
+    # Nicht erfasste Kommunen (transparent, dezent)
     return {
         "fillColor": "#CBD5E1",
         "color": "#94A3B8",
@@ -160,7 +191,7 @@ def highlight_fn(feature):
     props = feature.get("properties", {})
     ags = str(props.get("AGS", "")).strip().zfill(8)
 
-    # Optisches Hervorheben beim Hovern mit der Maus
+    # Hover-Effekt: Starke Hervorhebung bei Mauszeigerkontakt
     if ags in recorded_ags_set:
         return {
             "fillColor": "#26BDE2",
@@ -183,6 +214,8 @@ tooltip = folium.GeoJsonTooltip(
     fields=[
         "GEN",
         "Im_Projekt",
+        "Info_Bevoelkerung",
+        "Info_Partei",
         "Info_Status",
         "Info_Angebot",
         "Info_Einstieg",
@@ -192,6 +225,8 @@ tooltip = folium.GeoJsonTooltip(
     aliases=[
         "Kommune:",
         "Projektteilnahme:",
+        "Bevölkerung:",
+        "Partei:",
         "Beschluss:",
         "Angebot:",
         "Start:",
@@ -210,7 +245,7 @@ folium.GeoJson(
     tooltip=tooltip,
 ).add_to(m)
 
-# Layout: Karte links, Status/KPIs rechts
+# Layout
 col_map, col_side = st.columns([3, 1])
 
 with col_map:
@@ -252,7 +287,7 @@ if clicked_feature:
         c1, c2, c3, c4 = st.columns(4)
         c1.markdown(f"**Typ:** {details.get('Typ', '-')}")
         c1.markdown(f"**Regierungsbezirk:** {details.get('Regierungsbezirk', '-')}")
-        c2.markdown(f"**Bevölkerung:** {details.get('Bevoelkerung', '-')}")
+        c2.markdown(f"**Bevölkerung:** {clicked_props.get('Info_Bevoelkerung', '-')}")
         c2.markdown(f"**Partei:** {details.get('Partei', '-')}")
         c3.markdown(f"**BBSR-Einordnung:** {details.get('BBSR_Einordnung', '-')}")
         c3.markdown(f"**Beschlussstatus:** {details.get('Status_Beschluss', '-')}")
