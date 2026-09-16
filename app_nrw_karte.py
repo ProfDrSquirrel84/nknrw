@@ -102,22 +102,49 @@ df_raw = load_data()
 # ==============================================================================
 # 2. Interaktive Auswahlfilter in der Sidebar
 # ==============================================================================
-all_available_units = sorted(list(df_raw["Kommune"].dropna().unique()))
-
 st.sidebar.markdown("### 🎯 Filter & Steuerung")
 
+# A. Kommunen-Filter
+all_available_units = sorted(list(df_raw["Kommune"].dropna().unique()))
 selected_units = st.sidebar.multiselect(
-    "Einheiten auswählen (leer = alle anzeigen):",
+    "Kommunen / Kreise auswählen:",
     options=all_available_units,
     default=[],
-    help="Wähle eine oder mehrere Kommunen / Kreise aus, um Karte, KPIs und Diagramm zu filtern.",
+    help="Leer = alle Einheiten anzeigen.",
     key="ms_selected_units",
 )
 
+# B. Angebots-Filter (Semikolon-separierte Werte sauber aufschlüsseln)
+all_offers_raw = (
+    df_raw["Angebot"]
+    .dropna()
+    .astype(str)
+    .str.split(";")
+    .explode()
+    .str.strip()
+)
+all_available_offers = sorted([o for o in all_offers_raw.unique() if o and o != "nan"])
+
+selected_offers = st.sidebar.multiselect(
+    "Angebote auswählen:",
+    options=all_available_offers,
+    default=[],
+    help="Filtert Einheiten, die mindestens eines dieser Angebote gewählt haben.",
+    key="ms_selected_offers",
+)
+
+# Daten filtern basierend auf Sidebar-Eingaben
+df = df_raw.copy()
+
 if selected_units:
-    df = df_raw[df_raw["Kommune"].isin(selected_units)].copy()
-else:
-    df = df_raw.copy()
+    df = df[df["Kommune"].isin(selected_units)]
+
+if selected_offers:
+    # Prüft, ob in der Angebots-Spalte (auch bei mehreren Semikolon-Einträgen) eines der gewählten Angebote enthalten ist
+    mask = df["Angebot"].apply(
+        lambda x: any(offer in [a.strip() for a in str(x).split(";")] for offer in selected_offers)
+    )
+    df = df[mask]
 
 # ==============================================================================
 # 3. Aggregation & Vorbereitung des Match-Dictionaries
@@ -351,7 +378,7 @@ current_kommune_list = sorted(
     ))
 )
 search_kommune = st.sidebar.selectbox(
-    "🔍 In Auswahl zentrieren:",
+    "🔍 In gefilterter Auswahl zentrieren:",
     options=["(Übersicht)"] + current_kommune_list,
     index=0,
     key="sb_search_kommune_kreis",
@@ -527,7 +554,13 @@ with col_map:
 
 with col_side:
     st.subheader("Übersicht")
-    filter_label = f"({len(df)} Einheiten aktiv)" if selected_units else "(Alle Einheiten)"
+    active_filters = []
+    if selected_units:
+        active_filters.append(f"{len(selected_units)} Kommunen")
+    if selected_offers:
+        active_filters.append(f"{len(selected_offers)} Angebote")
+    
+    filter_label = f"Aktiv: {', '.join(active_filters)}" if active_filters else "(Alle Einheiten)"
     st.caption(f"Filter: **{filter_label}**")
 
     st.markdown(
