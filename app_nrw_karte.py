@@ -21,7 +21,7 @@ GITHUB_GEMEINDEN_BG_RAW_URL = "https://raw.githubusercontent.com/<DEIN_GITHUB_US
 GITHUB_LV_RAW_URL = "https://raw.githubusercontent.com/<DEIN_GITHUB_USER>/<DEIN_REPO>/main/landschaftsverband_rheinland.geojson"
 
 # ==============================================================================
-# Custom CSS für Vollbildkarte & schwebendes Overlay (oben rechts in der Karte)
+# Custom CSS für Vollbildkarte & vergrößertes schwebendes Overlay (Live-Übersicht)
 # ==============================================================================
 st.markdown("""
     <style>
@@ -672,7 +672,7 @@ if clicked_feature:
                 st.markdown("<span style='font-size: 12px;'>-</span>", unsafe_allow_html=True)
 
 # ==============================================================================
-# 9. Fünf Diagramme nebeneinander unterhalb der Karte
+# 9. Sechs Diagramme in zwei Reihen (jeweils 3 nebeneinander)
 # ==============================================================================
 st.markdown("---")
 st.subheader("📊 Auswertungen im Überblick")
@@ -702,6 +702,7 @@ sorting_orders = {
 }
 
 chart_columns_config = [
+    ("Angebot", "Angebot"),
     ("Gemeindegrößenklasse", "Gemeindegrößenklassen"),
     ("Zentralörtliche Einstufung", "Zentralörtliche Einstufung"),
     ("Beschluss NKNRW", "Beschluss NKNRW"),
@@ -709,13 +710,15 @@ chart_columns_config = [
     ("Vorerfahrung", "Vorerfahrung"),
 ]
 
-# 5 Spalten nebeneinander auf der breiten Ansicht
-cols = st.columns(5)
+# Aufteilung in zwei Reihen à 3 Spalten
+row1_cols = st.columns(3)
+row2_cols = st.columns(3)
+all_chart_slots = list(row1_cols) + list(row2_cols)
 
 for idx, (col_name, title) in enumerate(chart_columns_config):
-    if col_name in df.columns:
-        with cols[idx]:
-            st.markdown(f"<div style='font-size: 13px; font-weight: 600; text-align: center; margin-bottom: 5px;'>{title}</div>", unsafe_allow_html=True)
+    if idx < len(all_chart_slots) and col_name in df.columns:
+        with all_chart_slots[idx]:
+            st.markdown(f"<div style='font-size: 14px; font-weight: 600; text-align: center; margin-bottom: 5px;'>{title}</div>", unsafe_allow_html=True)
             
             series_split = (
                 df[col_name]
@@ -750,12 +753,12 @@ for idx, (col_name, title) in enumerate(chart_columns_config):
                 fig.update_traces(textposition="outside")
                 fig.update_layout(
                     showlegend=False,
-                    height=320,
-                    margin=dict(l=0, r=25, t=5, b=5),
+                    height=300,
+                    margin=dict(l=0, r=30, t=5, b=5),
                     xaxis_title="",
                     yaxis_title="",
                     xaxis=dict(showticklabels=False, showgrid=False),
-                    yaxis=dict(tickfont=dict(size=9)),
+                    yaxis=dict(tickfont=dict(size=11)),
                 )
                 st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
             else:
