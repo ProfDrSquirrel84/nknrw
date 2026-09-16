@@ -672,7 +672,7 @@ if clicked_feature:
                 st.markdown("<span style='font-size: 12px;'>-</span>", unsafe_allow_html=True)
 
 # ==============================================================================
-# 9. Mehrere Diagramme parallel unterhalb der Karte
+# 9. Fünf Diagramme nebeneinander unterhalb der Karte
 # ==============================================================================
 st.markdown("---")
 st.subheader("📊 Auswertungen im Überblick")
@@ -709,14 +709,13 @@ chart_columns_config = [
     ("Vorerfahrung", "Vorerfahrung"),
 ]
 
-row1_cols = st.columns(3)
-row2_cols = st.columns(2)
-all_chart_slots = list(row1_cols) + list(row2_cols)
+# 5 Spalten nebeneinander auf der breiten Ansicht
+cols = st.columns(5)
 
 for idx, (col_name, title) in enumerate(chart_columns_config):
-    if idx < len(all_chart_slots) and col_name in df.columns:
-        with all_chart_slots[idx]:
-            st.markdown(f"**{title}**")
+    if col_name in df.columns:
+        with cols[idx]:
+            st.markdown(f"<div style='font-size: 13px; font-weight: 600; text-align: center; margin-bottom: 5px;'>{title}</div>", unsafe_allow_html=True)
             
             series_split = (
                 df[col_name]
@@ -751,11 +750,12 @@ for idx, (col_name, title) in enumerate(chart_columns_config):
                 fig.update_traces(textposition="outside")
                 fig.update_layout(
                     showlegend=False,
-                    height=280,
-                    margin=dict(l=0, r=20, t=10, b=10),
+                    height=320,
+                    margin=dict(l=0, r=25, t=5, b=5),
                     xaxis_title="",
                     yaxis_title="",
-                    yaxis=dict(tickfont=dict(size=10)),
+                    xaxis=dict(showticklabels=False, showgrid=False),
+                    yaxis=dict(tickfont=dict(size=9)),
                 )
                 st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
             else:
