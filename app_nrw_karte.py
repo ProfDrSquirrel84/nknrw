@@ -196,7 +196,7 @@ for _, row in df.iterrows():
     else:
         total_applications_count += 1
 
-    # Kennzeichnung für genau 2 Angebote und 2 Einstiegszeitpunkte
+    # Erkennung von genau 2 Angeboten und 2 Einstiegszeitpunkten
     is_dual_application = (len(ang_list) == 2 and len(start_list) == 2)
     dual_badge = "🔄 2 Angebote & 2 Zeitpunkte" if is_dual_application else "Standard"
 
@@ -326,7 +326,7 @@ color_map = {
 }
 
 # ==============================================================================
-# 6. GeoJSON-Properties anreichern (inkl. Kennzeichnung)
+# 6. GeoJSON-Properties anreichern
 # ==============================================================================
 def enrich_features(features):
     if not features:
@@ -342,11 +342,11 @@ def enrich_features(features):
 
         info = data_by_match_key.get(match_key, {})
         
-        # Visueller Zusatz im Tooltip für Doppelbewerbungen
         badge_suffix = " 🔄 (2 Module)" if info.get("Is_Dual") else ""
         props["Im_Projekt"] = (
             f"Ja ({info.get('Anzahl_Projekte', 1)} Modul{'e' if info.get('Anzahl_Projekte', 1) > 1 else ''}){badge_suffix}"
         )
+        props["Is_Dual"] = info.get("Is_Dual", False)
         props["Info_Status"] = clean_val(info.get("Beschluss NKNRW"))
         props["Info_Angebot"] = clean_val(info.get("Info_Angebot"))
         props["Info_Einstieg"] = clean_val(info.get("Info_Einstieg"))
@@ -394,7 +394,7 @@ zoom_lvl = 8
 
 if search_kommune != "(Übersicht)":
     target_entry = next(
-        (v for v in data_by_match_key.values() if v.get("Kommune") == search_kommune),
+        (v for v in data_by_match_key.values() if v.get("Kommune"] == search_kommune),
         None,
     )
     if target_entry:
@@ -413,7 +413,7 @@ if search_kommune != "(Übersicht)":
                 break
 
 # ==============================================================================
-# 7. Styling & Leaflet-Karte
+# 7. Styling & Leaflet-Karte (mit dickerer Outline für Dual-Fälle)
 # ==============================================================================
 def style_fn_gemeinden(feature):
     props = feature.get("properties", {})
@@ -426,11 +426,17 @@ def style_fn_gemeinden(feature):
     )
     cat = props.get("Selected_Category")
     fill = color_map.get(cat, "#00689D")
+    
+    # Dickere Outline für Doppelanmeldungen (2 Angebote & 2 Einstiegszeitpunkte)
+    is_dual = props.get("Is_Dual", False)
+    weight = 3.8 if is_dual else 1.3
+    if is_highlighted:
+        weight = 4.5
 
     return {
         "fillColor": fill,
         "color": "#FFD700" if is_highlighted else "#0F2942",
-        "weight": 3.0 if is_highlighted else 1.3,
+        "weight": weight,
         "fillOpacity": 0.85,
     }
 
@@ -446,30 +452,39 @@ def style_fn_kreise(feature):
     )
     cat = props.get("Selected_Category")
     fill = color_map.get(cat, "#00689D")
+    
+    is_dual = props.get("Is_Dual", False)
+    weight = 3.2 if is_dual else 1.5
+    if is_highlighted:
+        weight = 4.0
 
     return {
         "fillColor": fill,
         "color": "#FFD700" if is_highlighted else "#475569",
-        "weight": 2.5 if is_highlighted else 1.5,
+        "weight": weight,
         "dashArray": "4, 4",
         "fillOpacity": 0.35,
     }
 
 
 def highlight_fn_gemeinden(feature):
+    props = feature.get("properties", {})
+    is_dual = props.get("Is_Dual", False)
     return {
         "fillColor": "#26BDE2",
         "color": "#0F2942",
-        "weight": 2.8,
+        "weight": 4.2 if is_dual else 2.8,
         "fillOpacity": 0.95,
     }
 
 
 def highlight_fn_kreise(feature):
+    props = feature.get("properties", {})
+    is_dual = props.get("Is_Dual", False)
     return {
         "fillColor": "#26BDE2",
         "color": "#0F2942",
-        "weight": 2.5,
+        "weight": 3.8 if is_dual else 2.5,
         "dashArray": "4, 4",
         "fillOpacity": 0.55,
     }
