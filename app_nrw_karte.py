@@ -186,7 +186,6 @@ def load_geojsons(allowed_keys):
     with open(GEOJSON_GEMEINDEN, "r", encoding="utf-8") as f:
         gemeinden_data = json.load(f)
 
-    # Filter: Nur Gemeinden behalten, deren bereinigter AGS in daten.csv existiert
     filtered_gemeinden = []
     for feat in gemeinden_data.get("features", []):
         if not feat.get("geometry"):
@@ -211,7 +210,6 @@ def load_geojsons(allowed_keys):
             kreise_data = None
 
     if kreise_data:
-        # Filter: Nur Kreise behalten, die in daten.csv vorkommen
         filtered_kreise = []
         for feat in kreise_data.get("features", []):
             if not feat.get("geometry"):
@@ -406,7 +404,7 @@ def style_fn_kreise(feature):
         "color": "#FFD700" if is_highlighted else "#475569",
         "weight": 2.5 if is_highlighted else 1.5,
         "dashArray": "4, 4",
-        "fillOpacity": 0.35,  # Hell und dezent im Hintergrund
+        "fillOpacity": 0.35,  # Dezent im Hintergrund
     }
 
 
@@ -478,7 +476,7 @@ def create_tooltip():
     )
 
 
-# 1. ZUERST Landkreise (Hintergrund, hell & transparent)
+# 1. ZUERST Landkreise (Hintergrund)
 if geojson_kreise and geojson_kreise["features"]:
     folium.GeoJson(
         geojson_kreise,
@@ -488,7 +486,7 @@ if geojson_kreise and geojson_kreise["features"]:
         tooltip=create_tooltip(),
     ).add_to(m)
 
-# 2. DANACH Kommunen (Vordergrund, kräftig)
+# 2. DANACH Kommunen (Vordergrund)
 folium.GeoJson(
     geojson_data,
     name="Gemeinden",
@@ -498,77 +496,17 @@ folium.GeoJson(
 ).add_to(m)
 
 # ==============================================================================
-# 7. Layout: Karte & Dashboard
+# 7. Layout: Karte über die volle Breite
 # ==============================================================================
-col_map, col_side = st.columns([65, 35])
-
-with col_map:
-    map_output = st_folium(
-        m,
-        width="100%",
-        height=740,
-        returned_objects=["last_active_drawing"],
-    )
-
-with col_side:
-    st.subheader("Übersicht")
-    st.markdown(
-        '<div style="display:flex; align-items:center; margin-bottom:10px;">'
-        '<div style="background-color:#00689D; width:15px; height:15px;'
-        ' border-radius:3px; margin-right:8px; flex-shrink:0;"></div><span'
-        ' style="font-size:13px; line-height:1.2;"><b>Beteiligte Einheit (Kommune / Kreis)</b></span></div>',
-        unsafe_allow_html=True,
-    )
-
-    kpi1, kpi2 = st.columns(2)
-    kpi1.metric("Bewerber", len(data_by_match_key))
-    kpi2.metric("Projektanträge", total_applications_count)
-
-    unique_pop = (
-        df.drop_duplicates(subset=["AGS_MATCH"])["Bevoelkerung_Num"].dropna().sum()
-    )
-    if unique_pop > 0:
-        st.metric("Erfasste Einwohner", f"{int(unique_pop):,}".replace(",", "."))
-
-    st.markdown("---")
-    st.markdown(f"##### 📊 Verteilung: {selected_chart_col}")
-
-    series_split = (
-        df[selected_chart_col]
-        .dropna()
-        .astype(str)
-        .str.split(";")
-        .explode()
-        .str.strip()
-    )
-    series_split = series_split[series_split != ""]
-
-    counts = series_split.value_counts().reset_index()
-    counts.columns = [selected_chart_col, "Anzahl"]
-    counts = counts.sort_values(by="Anzahl", ascending=True)
-
-    fig = px.bar(
-        counts,
-        x="Anzahl",
-        y=selected_chart_col,
-        orientation="h",
-        text="Anzahl",
-        color=selected_chart_col,
-        color_discrete_map=color_map,
-    )
-    fig.update_traces(textposition="outside")
-    fig.update_layout(
-        showlegend=False,
-        height=max(320, len(counts) * 34),
-        margin=dict(l=0, r=30, t=10, b=10),
-        xaxis_title="Fallzahl / Nennungen",
-        yaxis_title="",
-        yaxis=dict(tickfont=dict(size=11)),
-    )
-    st.plotly_chart(fig, use_container_width=True)
+map_output = st_folium(
+    m,
+    width="100%",
+    height=820,
+    returned_objects=["last_active_drawing"],
+)
 
 # ==============================================================================
-# 8. Factsheet bei Klick auf ein Polygon
+# 8. Factsheet bei Klick auf ein Polygon (über volle Breite)
 # ==============================================================================
 clicked_feature = map_output.get("last_active_drawing") if map_output else None
 if clicked_feature:
@@ -602,3 +540,67 @@ if clicked_feature:
                     )
             else:
                 st.markdown("<span style='font-size: 12px;'>-</span>", unsafe_allow_html=True)
+
+st.markdown("---")
+
+# ==============================================================================
+# 9. Bereich unter der Karte: Übersicht & Diagramm nebeneinander
+# ==============================================================================
+col_kpi, col_chart = st.columns([35, 65])
+
+with col_kpi:
+    st.subheader("Übersicht")
+    st.markdown(
+        '<div style="display:flex; align-items:center; margin-bottom:12px;">'
+        '<div style="background-color:#00689D; width:15px; height:15px;'
+        ' border-radius:3px; margin-right:8px; flex-shrink:0;"></div><span'
+        ' style="font-size:13px; line-height:1.2;"><b>Beteiligte Einheit (Kommune / Kreis)</b></span></div>',
+        unsafe_allow_html=True,
+    )
+
+    kpi1, kpi2 = st.columns(2)
+    kpi1.metric("Bewerber", len(data_by_match_key))
+    kpi2.metric("Projektanträge", total_applications_count)
+
+    unique_pop = (
+        df.drop_duplicates(subset=["AGS_MATCH"])["Bevoelkerung_Num"].dropna().sum()
+    )
+    if unique_pop > 0:
+        st.metric("Erfasste Einwohner", f"{int(unique_pop):,}".replace(",", "."))
+
+with col_chart:
+    st.subheader(f"📊 Verteilung: {selected_chart_col}")
+
+    series_split = (
+        df[selected_chart_col]
+        .dropna()
+        .astype(str)
+        .str.split(";")
+        .explode()
+        .str.strip()
+    )
+    series_split = series_split[series_split != ""]
+
+    counts = series_split.value_counts().reset_index()
+    counts.columns = [selected_chart_col, "Anzahl"]
+    counts = counts.sort_values(by="Anzahl", ascending=True)
+
+    fig = px.bar(
+        counts,
+        x="Anzahl",
+        y=selected_chart_col,
+        orientation="h",
+        text="Anzahl",
+        color=selected_chart_col,
+        color_discrete_map=color_map,
+    )
+    fig.update_traces(textposition="outside")
+    fig.update_layout(
+        showlegend=False,
+        height=max(320, len(counts) * 36),
+        margin=dict(l=0, r=30, t=10, b=10),
+        xaxis_title="Fallzahl / Nennungen",
+        yaxis_title="",
+        yaxis=dict(tickfont=dict(size=12)),
+    )
+    st.plotly_chart(fig, use_container_width=True)
