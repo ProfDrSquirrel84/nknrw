@@ -17,48 +17,32 @@ GEOJSON_KREISE = BASE_DIR / "nrw_kreise.geojson"
 GITHUB_KREISE_RAW_URL = "https://raw.githubusercontent.com/<DEIN_GITHUB_USER>/<DEIN_REPO>/main/nrw_kreise.geojson"
 
 # ==============================================================================
-# Custom CSS für Vollbildkarte & exakte schwebende Overlays IM Kartenbereich
+# Custom CSS für Vollbildkarte & schwebendes Overlay (oben rechts in der Karte)
 # ==============================================================================
 st.markdown("""
     <style>
     .block-container {
-        padding-top: 0.5rem;
+        padding-top: 1rem;
         padding-bottom: 0rem;
         padding-left: 1rem;
         padding-right: 1rem;
         max-width: 100% !important;
     }
-    .map-wrapper {
+    .map-container {
         position: relative;
         width: 100%;
-        margin-top: 10px;
     }
-    /* Schwebendes Overlay oben rechts (Live-Übersicht) */
-    .floating-kpi {
+    .floating-overlay-top-right {
         position: absolute;
-        top: 20px;
+        top: 25px;
         right: 25px;
         z-index: 99999;
         background: rgba(255, 255, 255, 0.95);
-        padding: 10px 14px;
+        padding: 12px 16px;
         border-radius: 8px;
         box-shadow: 0 4px 15px rgba(0,0,0,0.2);
         border: 1px solid #cbd5e1;
-        width: 280px;
-        pointer-events: auto;
-    }
-    /* Schwebendes Overlay darunter (Kompaktes Diagramm in der Karte) */
-    .floating-chart {
-        position: absolute;
-        top: 155px;
-        right: 25px;
-        z-index: 99999;
-        background: rgba(255, 255, 255, 0.95);
-        padding: 10px 14px;
-        border-radius: 8px;
-        box-shadow: 0 4px 15px rgba(0,0,0,0.2);
-        border: 1px solid #cbd5e1;
-        width: 340px;
+        width: 300px;
         pointer-events: auto;
     }
     </style>
@@ -604,13 +588,12 @@ if geojson_data and geojson_data["features"]:
     ).add_to(m)
 
 # ==============================================================================
-# 8. Vollflächige Karte mit absolut positionierten Overlays in der Karte
+# 8. Vollflächige Karte mit schwebender Live-Übersicht (oben rechts IN der Karte)
 # ==============================================================================
 st.title("🗺️ NRW-Kommunen: Übersicht & Beteiligung")
 
 st.markdown('<div class="map-container">', unsafe_allow_html=True)
 
-# 1. Overlay Oben Rechts (Live-Übersicht)
 active_filters = []
 if selected_units:
     active_filters.append(f"{len(selected_units)} Kommunen")
@@ -625,64 +608,23 @@ pop_str = f"{int(unique_pop):,}".replace(",", ".") if unique_pop > 0 else "-"
 
 st.markdown(f"""
     <div class="floating-overlay-top-right">
-        <b style="font-size:12px; color:#0F2942;">📊 Live-Übersicht</b><br>
+        <b style="font-size:13px; color:#0F2942;">📊 Live-Übersicht</b><br>
         <span style="font-size:10px; color:#64748B;">{filter_label}</span>
-        <hr style="margin: 3px 0; border-color:#cbd5e1;">
-        <div style="display:flex; justify-content:space-between; font-size:11px;">
+        <hr style="margin: 4px 0; border-color:#cbd5e1;">
+        <div style="display:flex; justify-content:space-between; font-size:12px;">
             <span>Bewerber: <b>{len(data_by_match_key)}</b></span>
             <span>Anträge: <b>{total_applications_count}</b></span>
         </div>
-        <div style="font-size:11px; margin-top:2px;">
+        <div style="font-size:12px; margin-top:3px;">
             Erfasste Einwohner: <b>{pop_str}</b>
         </div>
     </div>
 """, unsafe_allow_html=True)
 
-# 2. Overlay Unten Rechts (Kompaktes Diagramm in der Karte)
-series_split = (
-    df[selected_chart_col]
-    .dropna()
-    .astype(str)
-    .str.split(";")
-    .explode()
-    .str.strip()
-)
-series_split = series_split[series_split != ""]
-
-if not series_split.empty:
-    counts = series_split.value_counts().reset_index()
-    counts.columns = [selected_chart_col, "Anzahl"]
-    counts = counts.sort_values(by="Anzahl", ascending=True)
-
-    fig = px.bar(
-        counts,
-        x="Anzahl",
-        y=selected_chart_col,
-        orientation="h",
-        text="Anzahl",
-        color=selected_chart_col,
-        color_discrete_map=color_map,
-    )
-    fig.update_traces(textposition="outside")
-    fig.update_layout(
-        showlegend=False,
-        height=160,
-        margin=dict(l=0, r=5, t=2, b=2),
-        xaxis_title="Fallzahl",
-        yaxis_title="",
-        yaxis=dict(tickfont=dict(size=9)),
-    )
-    
-    st.markdown('<div class="floating-overlay-bottom-right">', unsafe_allow_html=True)
-    st.markdown(f"<b style='font-size:11px; color:#0F2942;'>📊 {selected_chart_col}</b>", unsafe_allow_html=True)
-    st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
-    st.markdown('</div>', unsafe_allow_html=True)
-
-# Karte rendern
 map_output = st_folium(
     m,
     width="100%",
-    height=850,
+    height=820,
     returned_objects=["last_active_drawing"],
 )
 st.markdown('</div>', unsafe_allow_html=True)
@@ -722,3 +664,46 @@ if clicked_feature:
                     )
             else:
                 st.markdown("<span style='font-size: 12px;'>-</span>", unsafe_allow_html=True)
+
+# ==============================================================================
+# 10. Diagramm unterhalb der Karte
+# ==============================================================================
+st.markdown("---")
+st.subheader(f"📊 Verteilung: {selected_chart_col}")
+
+series_split = (
+    df[selected_chart_col]
+    .dropna()
+    .astype(str)
+    .str.split(";")
+    .explode()
+    .str.strip()
+)
+series_split = series_split[series_split != ""]
+
+if not series_split.empty:
+    counts = series_split.value_counts().reset_index()
+    counts.columns = [selected_chart_col, "Anzahl"]
+    counts = counts.sort_values(by="Anzahl", ascending=True)
+
+    fig = px.bar(
+        counts,
+        x="Anzahl",
+        y=selected_chart_col,
+        orientation="h",
+        text="Anzahl",
+        color=selected_chart_col,
+        color_discrete_map=color_map,
+    )
+    fig.update_traces(textposition="outside")
+    fig.update_layout(
+        showlegend=False,
+        height=max(280, len(counts) * 32),
+        margin=dict(l=0, r=20, t=10, b=10),
+        xaxis_title="Fallzahl / Nennungen",
+        yaxis_title="",
+        yaxis=dict(tickfont=dict(size=11)),
+    )
+    st.plotly_chart(fig, use_container_width=True)
+else:
+    st.info("Keine Daten für die gewählte Kombination vorhanden.")
