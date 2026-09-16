@@ -394,7 +394,7 @@ zoom_lvl = 8
 
 if search_kommune != "(Übersicht)":
     target_entry = next(
-        (v for v in data_by_match_key.values() if v.get("Kommune"] == search_kommune),
+        (v for v in data_by_match_key.values() if v.get("Kommune") == search_kommune),
         None,
     )
     if target_entry:
