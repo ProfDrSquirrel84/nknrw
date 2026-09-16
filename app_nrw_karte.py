@@ -14,7 +14,7 @@ GEOJSON_PATH = BASE_DIR / "nrw_gemeinden.geojson"
 
 
 # ==============================================================================
-# 1. Daten laden & vorbereiten
+# 1. Daten laden & bereinigen
 # ==============================================================================
 @st.cache_data
 def load_data():
@@ -37,11 +37,13 @@ def load_data():
             DATA_PATH, sep=None, engine="python", dtype=str, encoding="utf-8"
         )
 
+    # Whitespaces aus Spaltennamen entfernen
     df.columns = df.columns.astype(str).str.strip()
 
+    # AGS-Spalte vereinheitlichen & 8-stellig auffüllen
     ags_col = next((c for c in df.columns if "AGS" in c.upper()), None)
     if not ags_col:
-        st.error(f"Keine AGS-Spalte gefunden! Vorhanden: {list(df.columns)}")
+        st.error(f"Keine AGS-Spalte gefunden! Vorhandene Spalten: {list(df.columns)}")
         st.stop()
 
     df = df.rename(columns={ags_col: "AGS"})
@@ -49,6 +51,7 @@ def load_data():
         df["AGS"].astype(str).str.extract(r"(\d+)")[0].dropna().str.zfill(8)
     )
 
+    # Kommunen-Spalte ermitteln
     if "Kommune" not in df.columns:
         kom_col = next(
             (
@@ -62,7 +65,7 @@ def load_data():
         )
         df["Kommune"] = df[kom_col] if kom_col else df["AGS"]
 
-    # Spalten für Bevölkerung und Partei flexibel finden
+    # Bevölkerung flexibel auffinden und numerisch konvertieren
     bev_col = next(
         (
             c
@@ -71,19 +74,23 @@ def load_data():
         ),
         None,
     )
-    if bev_col and bev_col != "Bevoelkerung":
-        df["Bevoelkerung"] = df[bev_col]
-
-    partei_col = next((c for c in df.columns if "PARTEI" in c.upper()), None)
-    if partei_col and partei_col != "Partei":
-        df["Partei"] = df[partei_col]
+    if bev_col and bev_col != "Bevölkerung":
+        df["Bevölkerung"] = df[bev_col]
 
     def parse_pop(val):
         digits = "".join(filter(str.isdigit, str(val)))
         return int(digits) if digits else None
 
-    if "Bevoelkerung" in df.columns:
-        df["Bevoelkerung_Num"] = df["Bevoelkerung"].apply(parse_pop)
+    if "Bevölkerung" in df.columns:
+        df["Bevoelkerung_Num"] = df["Bevölkerung"].apply(parse_pop)
+
+    # Beschluss-Spalte sauber identifizieren (z. B. "Beschluss NKNRW" oder "Beschluss, NKNRW")
+    beschluss_col = next(
+        (c for c in df.columns if "BESCHLUSS" in c.upper()),
+        None,
+    )
+    if beschluss_col and beschluss_col != "Beschluss NKNRW":
+        df["Beschluss NKNRW"] = df[beschluss_col]
 
     return df
 
@@ -103,7 +110,7 @@ geojson_data = load_geojson()
 st.title("🗺️ NRW-Kommunen: Übersicht & Beteiligung")
 
 # ==============================================================================
-# 2. Daten aggregieren, Semikolon-Paarung & Kreis-Mapping
+# 2. Aggregation, Semikolon-Paarung & Kreis-Mapping
 # ==============================================================================
 data_by_ags = {}
 kreis_lookup = {}
@@ -137,7 +144,7 @@ for _, row in df.iterrows():
         })
         total_applications_count += 1
 
-    # Mehrere Angebote und mehrere Termine (1:1-Zuordnung)
+    # Mehrere Angebote und Termine (1:1 Zuordnung)
     elif len(ang_list) > 1 and len(start_list) == len(ang_list):
         for ang, st_time in zip(ang_list, start_list):
             paired_offers.append({
@@ -164,13 +171,15 @@ for _, row in df.iterrows():
 
     entry = {
         "Kommune": row.get("Kommune"),
+        "Kreis": row.get("Kreis", "-"),
         "Typ": row.get("Typ", "-"),
         "Regierungsbezirk": row.get("Regierungsbezirk", "-"),
-        "Partei": row.get("Partei", "-"),
-        "Bevoelkerung": row.get("Bevoelkerung", "-"),
+        "Bevölkerung": row.get("Bevölkerung", "-"),
         "Bevoelkerung_Num": row.get("Bevoelkerung_Num"),
-        "BBSR_Einordnung": row.get("BBSR_Einordnung", "-"),
-        "Status_Beschluss": row.get("Status_Beschluss", "-"),
+        "Gemeindegrößenklasse": row.get("Gemeindegrößenklasse", "-"),
+        "Partei": row.get("Partei", "-"),
+        "Zentralörtliche Einstufung": row.get("Zentralörtliche Einstufung", "-"),
+        "Beschluss NKNRW": row.get("Beschluss NKNRW", "-"),
         "Vorerfahrung": row.get("Vorerfahrung", "-"),
         "Info_Angebot": " | ".join(ang_list) if ang_list else "-",
         "Info_Einstieg": " / ".join(start_list) if start_list else "-",
@@ -184,16 +193,27 @@ for _, row in df.iterrows():
 
     data_by_ags[ags] = entry
 
-    # Wenn es sich um einen Kreis handelt (z. B. Kreis Euskirchen / Kreis Heinsberg), Präfix registrieren
     if entry["Is_Kreis"]:
         kreis_lookup[ags[:5]] = entry
 
 # ==============================================================================
-# 3. Steuerung: Variable für Diagramm & synchrone Kartenfärbung
+# 3. Exakt definierte Variablenauswahl für Diagramm & Kartenfärbung
 # ==============================================================================
-chart_candidates = [
-    c for c in df.columns if c not in ["AGS", "ARS", "Bevoelkerung_Num"]
+allowed_vars = [
+    "Kreis",
+    "Typ",
+    "Regierungsbezirk",
+    "Gemeindegrößenklasse",
+    "Partei",
+    "Zentralörtliche Einstufung",
+    "Beschluss NKNRW",
+    "Angebot",
+    "Einstiegszeitpunkt",
+    "Vorerfahrung",
 ]
+
+# Nur Variablen anzeigen, die auch tatsächlich im DataFrame existieren
+chart_candidates = [v for v in allowed_vars if v in df.columns]
 
 selected_chart_col = st.sidebar.selectbox(
     "📊 Variable für Diagramm & Kartenfärbung:",
@@ -214,29 +234,23 @@ PALETTE = [
     "#FD6925",  # Dunkelorange
     "#3F7E44",  # Waldgrün
     "#8B5CF6",  # Violett
-    "#06B6D4",  # Cyan
+    "#06B6D4",  # Türkis
     "#64748B",  # Schiefergrau
 ]
 
-is_pop_selected = any(
-    x in selected_chart_col.upper()
-    for x in ["BEVÖLKERUNG", "BEVOELKERUNG", "EINWOHNER"]
+# Farbzuordnung pro Ausprägung (inkl. gesplitteter Semikolon-Einträge)
+all_vals = (
+    df[selected_chart_col]
+    .dropna()
+    .astype(str)
+    .str.split(";")
+    .explode()
+    .str.strip()
 )
-
-color_map = {}
-if not is_pop_selected:
-    all_vals = (
-        df[selected_chart_col]
-        .dropna()
-        .astype(str)
-        .str.split(";")
-        .explode()
-        .str.strip()
-    )
-    unique_categories = sorted([v for v in all_vals.unique() if v and v != "nan"])
-    color_map = {
-        val: PALETTE[i % len(PALETTE)] for i, val in enumerate(unique_categories)
-    }
+unique_categories = sorted([v for v in all_vals.unique() if v and v != "nan"])
+color_map = {
+    val: PALETTE[i % len(PALETTE)] for i, val in enumerate(unique_categories)
+}
 
 # ==============================================================================
 # 4. GeoJSON-Properties anreichern (mit Kreis-Fallback)
@@ -246,7 +260,6 @@ for feat in geojson_data["features"]:
     ags = str(props.get("AGS", "")).strip().zfill(8)
     kreis_prefix = ags[:5]
 
-    # Priorität 1: Gemeinde selbst hat sich beworben
     if ags in data_by_ags:
         info = data_by_ags[ags]
         props["Im_Projekt"] = (
@@ -254,32 +267,31 @@ for feat in geojson_data["features"]:
         )
         props["Match_AGS"] = ags
         props["Beteiligungs_Typ"] = "Gemeinde direkt"
-
-    # Priorität 2: Kreisweite Beteiligung über einen Landkreis
     elif kreis_prefix in kreis_lookup:
         info = kreis_lookup[kreis_prefix]
         props["Im_Projekt"] = f"Ja (über {info['Kommune']})"
         props["Match_AGS"] = kreis_prefix + "000"
         props["Beteiligungs_Typ"] = f"Kreisweit ({info['Kommune']})"
-
     else:
         info = None
         props["Match_AGS"] = None
         props["Beteiligungs_Typ"] = "Keine Teilnahme"
 
     if info:
-        props["Info_Status"] = info["Status_Beschluss"]
-        props["Info_Angebot"] = info["Info_Angebot"]
-        props["Info_Einstieg"] = info["Info_Einstieg"]
-        props["Info_Typ"] = info["Typ"]
-        props["Info_RB"] = info["Regierungsbezirk"]
-        props["Info_Partei"] = info["Partei"]
+        props["Info_Status"] = info.get("Beschluss NKNRW", "-")
+        props["Info_Angebot"] = info.get("Info_Angebot", "-")
+        props["Info_Einstieg"] = info.get("Info_Einstieg", "-")
+        props["Info_Typ"] = info.get("Typ", "-")
+        props["Info_RB"] = info.get("Regierungsbezirk", "-")
+        props["Info_Partei"] = info.get("Partei", "-")
+        props["Info_Klasse"] = info.get("Gemeindegrößenklasse", "-")
+        props["Info_Zentral"] = info.get("Zentralörtliche Einstufung", "-")
 
         pop_num = info.get("Bevoelkerung_Num")
         if pd.notnull(pop_num):
             props["Info_Bevoelkerung"] = f"{int(pop_num):,}".replace(",", ".")
         else:
-            props["Info_Bevoelkerung"] = info["Bevoelkerung"]
+            props["Info_Bevoelkerung"] = info.get("Bevölkerung", "-")
 
         raw_val = str(info["Row_Data"].get(selected_chart_col, "-")).strip()
         first_val = (
@@ -295,6 +307,8 @@ for feat in geojson_data["features"]:
         props["Info_Typ"] = "-"
         props["Info_RB"] = "-"
         props["Info_Partei"] = "-"
+        props["Info_Klasse"] = "-"
+        props["Info_Zentral"] = "-"
         props["Info_Bevoelkerung"] = "-"
         props["Im_Projekt"] = "Nein"
         props["Selected_Category"] = None
@@ -346,7 +360,7 @@ if search_kommune != "(NRW Übersicht)":
 
 
 # ==============================================================================
-# 5. Styling- und Highlight-Funktionen
+# 5. Styling & Tooltip
 # ==============================================================================
 def style_fn(feature):
     props = feature.get("properties", {})
@@ -360,13 +374,8 @@ def style_fn(feature):
             and target_info.get("Kommune") == search_kommune
         )
 
-        if is_pop_selected:
-            fill = "#00689D"
-        else:
-            cat = props.get("Selected_Category")
-            fill = color_map.get(cat, "#00689D")
-
-        # Kreis-Polygone mit feiner Transparenz
+        cat = props.get("Selected_Category")
+        fill = color_map.get(cat, "#00689D")
         opacity = 0.70 if props.get("Beteiligungs_Typ", "").startswith("Kreis") else 0.85
 
         return {
@@ -400,9 +409,6 @@ def highlight_fn(feature):
     }
 
 
-# ==============================================================================
-# 6. Folium Karte aufbauen
-# ==============================================================================
 m = folium.Map(location=center_loc, zoom_start=zoom_lvl, tiles="OpenStreetMap")
 
 tooltip_style = """
@@ -422,21 +428,25 @@ tooltip = folium.GeoJsonTooltip(
         "GEN",
         "Im_Projekt",
         "Info_Bevoelkerung",
+        "Info_Klasse",
         "Info_Partei",
         "Info_Status",
         "Info_Angebot",
         "Info_Einstieg",
+        "Info_Zentral",
         "Info_Typ",
         "Info_RB",
     ],
     aliases=[
         "Kommune / Gebiet:",
         "Projektbeteiligung:",
-        "Bevölkerung (Einheit):",
+        "Bevölkerung:",
+        "Größenklasse:",
         "Partei:",
-        "Beschluss:",
+        "Beschluss NKNRW:",
         "Angebot(e):",
         "Wunschstart(e):",
+        "Zentralörtlich:",
         "Typ:",
         "Regierungsbezirk:",
     ],
@@ -454,7 +464,7 @@ folium.GeoJson(
 ).add_to(m)
 
 # ==============================================================================
-# 7. Layout: Karte & Dashboard
+# 6. Layout: Karte & Diagramm
 # ==============================================================================
 col_map, col_side = st.columns([65, 35])
 
@@ -470,14 +480,17 @@ with col_side:
     st.subheader("Übersicht")
     st.markdown(
         '<div style="display:flex; align-items:center; margin-bottom:6px;">'
-        '<div style="background-color:#00689D; width:15px; height:15px; border-radius:3px; margin-right:8px; flex-shrink:0;"></div>'
-        '<span style="font-size:13px; line-height:1.2;"><b>Erfasste Einheit (Kommune / Kreis)</b></span></div>',
+        '<div style="background-color:#00689D; width:15px; height:15px;'
+        ' border-radius:3px; margin-right:8px; flex-shrink:0;"></div><span'
+        ' style="font-size:13px; line-height:1.2;"><b>Erfasste Einheit (Kommune / Kreis)</b></span></div>',
         unsafe_allow_html=True,
     )
     st.markdown(
         '<div style="display:flex; align-items:center; margin-bottom:10px;">'
-        '<div style="background-color:#CBD5E1; border:1px solid #94A3B8; width:15px; height:15px; border-radius:3px; margin-right:8px; flex-shrink:0;"></div>'
-        '<span style="font-size:13px; color:#475569; line-height:1.2;">Nicht erfasst</span></div>',
+        '<div style="background-color:#CBD5E1; border:1px solid #94A3B8;'
+        ' width:15px; height:15px; border-radius:3px; margin-right:8px;'
+        ' flex-shrink:0;"></div><span style="font-size:13px; color:#475569;'
+        ' line-height:1.2;">Nicht erfasst</span></div>',
         unsafe_allow_html=True,
     )
 
@@ -494,72 +507,43 @@ with col_side:
     st.markdown("---")
     st.markdown(f"##### 📊 Verteilung: {selected_chart_col}")
 
-    # Fall A: Bevölkerung (sortiert)
-    if is_pop_selected:
-        df_chart = (
-            df.drop_duplicates(subset=["AGS"])
-            .dropna(subset=["Bevoelkerung_Num"])
-            .sort_values("Bevoelkerung_Num", ascending=True)
-        )
-        fig = px.bar(
-            df_chart,
-            x="Bevoelkerung_Num",
-            y="Kommune",
-            orientation="h",
-            text="Bevoelkerung_Num",
-            color_discrete_sequence=["#00689D"],
-        )
-        fig.update_traces(
-            texttemplate="%{text:,.0f}",
-            textposition="outside",
-            cliponaxis=False,
-        )
-        fig.update_layout(
-            height=max(400, len(df_chart) * 20),
-            margin=dict(l=0, r=45, t=10, b=10),
-            xaxis=dict(showticklabels=False, showgrid=False),
-            yaxis=dict(tickfont=dict(size=11)),
-        )
-        st.plotly_chart(fig, use_container_width=True)
+    # Semikolon-Werte einzeln zählen und als synchrone Farb-Balken anzeigen
+    series_split = (
+        df[selected_chart_col]
+        .dropna()
+        .astype(str)
+        .str.split(";")
+        .explode()
+        .str.strip()
+    )
+    series_split = series_split[series_split != ""]
 
-    # Fall B: Kategoriale Variablen (synchron mit Kartenfarbe)
-    else:
-        series_split = (
-            df[selected_chart_col]
-            .dropna()
-            .astype(str)
-            .str.split(";")
-            .explode()
-            .str.strip()
-        )
-        series_split = series_split[series_split != ""]
+    counts = series_split.value_counts().reset_index()
+    counts.columns = [selected_chart_col, "Anzahl"]
+    counts = counts.sort_values(by="Anzahl", ascending=True)
 
-        counts = series_split.value_counts().reset_index()
-        counts.columns = [selected_chart_col, "Anzahl"]
-        counts = counts.sort_values(by="Anzahl", ascending=True)
-
-        fig = px.bar(
-            counts,
-            x="Anzahl",
-            y=selected_chart_col,
-            orientation="h",
-            text="Anzahl",
-            color=selected_chart_col,
-            color_discrete_map=color_map,
-        )
-        fig.update_traces(textposition="outside")
-        fig.update_layout(
-            showlegend=False,
-            height=max(320, len(counts) * 34),
-            margin=dict(l=0, r=30, t=10, b=10),
-            xaxis_title="Fallzahl / Nennungen",
-            yaxis_title="",
-            yaxis=dict(tickfont=dict(size=11)),
-        )
-        st.plotly_chart(fig, use_container_width=True)
+    fig = px.bar(
+        counts,
+        x="Anzahl",
+        y=selected_chart_col,
+        orientation="h",
+        text="Anzahl",
+        color=selected_chart_col,
+        color_discrete_map=color_map,
+    )
+    fig.update_traces(textposition="outside")
+    fig.update_layout(
+        showlegend=False,
+        height=max(320, len(counts) * 34),
+        margin=dict(l=0, r=30, t=10, b=10),
+        xaxis_title="Fallzahl / Nennungen",
+        yaxis_title="",
+        yaxis=dict(tickfont=dict(size=11)),
+    )
+    st.plotly_chart(fig, use_container_width=True)
 
 # ==============================================================================
-# 8. Factsheet bei Klick auf ein Polygon
+# 7. Factsheet bei Klick auf ein Polygon
 # ==============================================================================
 clicked_feature = map_output.get("last_active_drawing") if map_output else None
 if clicked_feature:
@@ -577,12 +561,15 @@ if clicked_feature:
         with c1:
             st.markdown(f"<span style='font-size: 13px;'><b>Typ:</b> {details.get('Typ', '-')}</span>", unsafe_allow_html=True)
             st.markdown(f"<span style='font-size: 13px;'><b>Regierungsbezirk:</b> {details.get('Regierungsbezirk', '-')}</span>", unsafe_allow_html=True)
+            st.markdown(f"<span style='font-size: 13px;'><b>Kreis:</b> {details.get('Kreis', '-')}</span>", unsafe_allow_html=True)
         with c2:
-            st.markdown(f"<span style='font-size: 13px;'><b>Bevölkerung:</b> {details.get('Bevoelkerung', '-')}</span>", unsafe_allow_html=True)
+            st.markdown(f"<span style='font-size: 13px;'><b>Bevölkerung:</b> {details.get('Bevölkerung', '-')}</span>", unsafe_allow_html=True)
+            st.markdown(f"<span style='font-size: 13px;'><b>Größenklasse:</b> {details.get('Gemeindegrößenklasse', '-')}</span>", unsafe_allow_html=True)
             st.markdown(f"<span style='font-size: 13px;'><b>Partei:</b> {details.get('Partei', '-')}</span>", unsafe_allow_html=True)
         with c3:
-            st.markdown(f"<span style='font-size: 13px;'><b>BBSR-Einordnung:</b> {details.get('BBSR_Einordnung', '-') or '-'}</span>", unsafe_allow_html=True)
-            st.markdown(f"<span style='font-size: 13px;'><b>Beschluss:</b> {details.get('Status_Beschluss', '-')}</span>", unsafe_allow_html=True)
+            st.markdown(f"<span style='font-size: 13px;'><b>Zentralörtlich:</b> {details.get('Zentralörtliche Einstufung', '-')}</span>", unsafe_allow_html=True)
+            st.markdown(f"<span style='font-size: 13px;'><b>Beschluss NKNRW:</b> {details.get('Beschluss NKNRW', '-')}</span>", unsafe_allow_html=True)
+            st.markdown(f"<span style='font-size: 13px;'><b>Vorerfahrung:</b> {details.get('Vorerfahrung', '-')}</span>", unsafe_allow_html=True)
         with c4:
             st.markdown(f"<span style='font-size: 13px;'><b>Bewerbungen ({details['Anzahl_Projekte']}):</b></span>", unsafe_allow_html=True)
             if details["Angebote_Paare"]:
