@@ -14,12 +14,10 @@ DATA_PATH = BASE_DIR / "daten.csv"
 GEOJSON_GEMEINDEN = BASE_DIR / "nrw_gemeinden.geojson"
 GEOJSON_KREISE = BASE_DIR / "nrw_kreise.geojson"
 
-# GitHub Fallback-URL (wird nur verwendet, falls nrw_kreise.geojson lokal fehlen sollte)
 GITHUB_KREISE_RAW_URL = "https://raw.githubusercontent.com/<DEIN_GITHUB_USER>/<DEIN_REPO>/main/nrw_kreise.geojson"
 
 
 def clean_val(val, default="-"):
-    """Bereinigt NaN/None/Leerwerte, damit Leaflet/Folium nicht abstürzt."""
     if val is None or pd.isna(val):
         return default
     s = str(val).strip()
@@ -36,7 +34,6 @@ def load_data():
         st.stop()
 
     try:
-        # utf-8-sig fängt das Windows-BOM sauber ab
         df = pd.read_csv(DATA_PATH, sep=";", dtype=str, encoding="utf-8-sig")
         if df.shape[1] == 1:
             df = pd.read_csv(
@@ -55,7 +52,6 @@ def load_data():
         st.stop()
 
     df = df.rename(columns={ags_col: "AGS"})
-    # Bereinigter Match-Key ohne führende Nullen
     df["AGS_MATCH"] = (
         df["AGS"].astype(str).str.extract(r"(\d+)")[0].dropna().str.lstrip("0")
     )
@@ -101,46 +97,10 @@ def load_data():
     return df
 
 
-@st.cache_data
-def load_geojsons():
-    if not GEOJSON_GEMEINDEN.is_file():
-        st.error(f"Datei 'nrw_gemeinden.geojson' fehlt: {GEOJSON_GEMEINDEN}")
-        st.stop()
-    with open(GEOJSON_GEMEINDEN, "r", encoding="utf-8") as f:
-        gemeinden_data = json.load(f)
-
-    # Nur Features mit gültiger Geometrie übernehmen
-    gemeinden_data["features"] = [
-        f for f in gemeinden_data.get("features", []) if f.get("geometry")
-    ]
-
-    kreise_data = None
-    if GEOJSON_KREISE.is_file():
-        with open(GEOJSON_KREISE, "r", encoding="utf-8") as f:
-            kreise_data = json.load(f)
-    elif "<DEIN_GITHUB_USER>" not in GITHUB_KREISE_RAW_URL:
-        try:
-            resp = requests.get(GITHUB_KREISE_RAW_URL, timeout=10)
-            if resp.status_code == 200:
-                kreise_data = resp.json()
-        except Exception:
-            kreise_data = None
-
-    if kreise_data:
-        kreise_data["features"] = [
-            f for f in kreise_data.get("features", []) if f.get("geometry")
-        ]
-
-    return gemeinden_data, kreise_data
-
-
 df = load_data()
-geojson_data, geojson_kreise = load_geojsons()
-
-st.title("🗺️ NRW-Kommunen: Übersicht & Beteiligung")
 
 # ==============================================================================
-# 2. Aggregation & Semikolon-Paarung
+# 2. Aggregation & Vorbereitung des Match-Dictionaries
 # ==============================================================================
 data_by_match_key = {}
 total_applications_count = 0
@@ -214,8 +174,62 @@ for _, row in df.iterrows():
 
 recorded_keys_set = set(data_by_match_key.keys())
 
+
 # ==============================================================================
-# 3. Variablenauswahl für Diagramm & synchrone Kartenfärbung
+# 3. GeoJSONs laden & strikt auf erfasste Einheiten filtern
+# ==============================================================================
+@st.cache_data
+def load_geojsons(allowed_keys):
+    if not GEOJSON_GEMEINDEN.is_file():
+        st.error(f"Datei 'nrw_gemeinden.geojson' fehlt: {GEOJSON_GEMEINDEN}")
+        st.stop()
+    with open(GEOJSON_GEMEINDEN, "r", encoding="utf-8") as f:
+        gemeinden_data = json.load(f)
+
+    # Filter: Nur Gemeinden behalten, deren bereinigter AGS in daten.csv existiert
+    filtered_gemeinden = []
+    for feat in gemeinden_data.get("features", []):
+        if not feat.get("geometry"):
+            continue
+        props = feat.setdefault("properties", {})
+        raw_code = str(props.get("AGS") or props.get("AGS_0") or "")
+        key = "".join(filter(str.isdigit, raw_code)).lstrip("0")
+        if key in allowed_keys:
+            filtered_gemeinden.append(feat)
+    gemeinden_data["features"] = filtered_gemeinden
+
+    kreise_data = None
+    if GEOJSON_KREISE.is_file():
+        with open(GEOJSON_KREISE, "r", encoding="utf-8") as f:
+            kreise_data = json.load(f)
+    elif "<DEIN_GITHUB_USER>" not in GITHUB_KREISE_RAW_URL:
+        try:
+            resp = requests.get(GITHUB_KREISE_RAW_URL, timeout=10)
+            if resp.status_code == 200:
+                kreise_data = resp.json()
+        except Exception:
+            kreise_data = None
+
+    if kreise_data:
+        # Filter: Nur Kreise behalten, die in daten.csv vorkommen
+        filtered_kreise = []
+        for feat in kreise_data.get("features", []):
+            if not feat.get("geometry"):
+                continue
+            props = feat.setdefault("properties", {})
+            raw_code = str(props.get("AGS") or props.get("AGS_0") or "")
+            key = "".join(filter(str.isdigit, raw_code)).lstrip("0")
+            if key in allowed_keys:
+                filtered_kreise.append(feat)
+        kreise_data["features"] = filtered_kreise
+
+    return gemeinden_data, kreise_data
+
+
+geojson_data, geojson_kreise = load_geojsons(recorded_keys_set)
+
+# ==============================================================================
+# 4. Variablenauswahl für Diagramm & synchrone Farbgebung
 # ==============================================================================
 allowed_vars = [
     "Kreis",
@@ -242,18 +256,18 @@ selected_chart_col = st.sidebar.selectbox(
 )
 
 PALETTE = [
-    "#00689D",  # Blau
-    "#4C9F38",  # Grün
-    "#FD9D24",  # Orange
-    "#DD1367",  # Magenta
-    "#26BDE2",  # Cyan
-    "#FCC30B",  # Gelb
-    "#A21942",  # Weinrot
-    "#FD6925",  # Dunkelorange
-    "#3F7E44",  # Waldgrün
-    "#8B5CF6",  # Violett
-    "#06B6D4",  # Türkis
-    "#64748B",  # Schiefergrau
+    "#00689D",
+    "#4C9F38",
+    "#FD9D24",
+    "#DD1367",
+    "#26BDE2",
+    "#FCC30B",
+    "#A21942",
+    "#FD6925",
+    "#3F7E44",
+    "#8B5CF6",
+    "#06B6D4",
+    "#64748B",
 ]
 
 all_vals = (
@@ -269,60 +283,46 @@ color_map = {
     val: PALETTE[i % len(PALETTE)] for i, val in enumerate(unique_categories)
 }
 
+
 # ==============================================================================
-# 4. GeoJSON-Properties absichern & anreichern
+# 5. GeoJSON-Properties der gefilterten Einheiten anreichern
 # ==============================================================================
 def enrich_features(features):
     for feat in features:
         props = feat.setdefault("properties", {})
-
         props["GEN"] = clean_val(
             props.get("GEN") or props.get("NAME") or props.get("BEZ"), "Unbekannt"
         )
-
         raw_code = str(props.get("AGS") or props.get("AGS_0") or "")
         match_key = "".join(filter(str.isdigit, raw_code)).lstrip("0")
         props["MATCH_KEY"] = match_key
 
-        if match_key in data_by_match_key:
-            info = data_by_match_key[match_key]
-            props["Im_Projekt"] = (
-                f"Ja ({info['Anzahl_Projekte']} Modul{'e' if info['Anzahl_Projekte'] > 1 else ''})"
-            )
-            props["Info_Status"] = clean_val(info.get("Beschluss NKNRW"))
-            props["Info_Angebot"] = clean_val(info.get("Info_Angebot"))
-            props["Info_Einstieg"] = clean_val(info.get("Info_Einstieg"))
-            props["Info_Typ"] = clean_val(info.get("Typ"))
-            props["Info_RB"] = clean_val(info.get("Regierungsbezirk"))
-            props["Info_Partei"] = clean_val(info.get("Partei"))
-            props["Info_Klasse"] = clean_val(info.get("Gemeindegrößenklasse"))
-            props["Info_Zentral"] = clean_val(info.get("Zentralörtliche Einstufung"))
+        info = data_by_match_key.get(match_key, {})
+        props["Im_Projekt"] = (
+            f"Ja ({info.get('Anzahl_Projekte', 1)} Modul{'e' if info.get('Anzahl_Projekte', 1) > 1 else ''})"
+        )
+        props["Info_Status"] = clean_val(info.get("Beschluss NKNRW"))
+        props["Info_Angebot"] = clean_val(info.get("Info_Angebot"))
+        props["Info_Einstieg"] = clean_val(info.get("Info_Einstieg"))
+        props["Info_Typ"] = clean_val(info.get("Typ"))
+        props["Info_RB"] = clean_val(info.get("Regierungsbezirk"))
+        props["Info_Partei"] = clean_val(info.get("Partei"))
+        props["Info_Klasse"] = clean_val(info.get("Gemeindegrößenklasse"))
+        props["Info_Zentral"] = clean_val(info.get("Zentralörtliche Einstufung"))
 
-            pop_num = info.get("Bevoelkerung_Num")
-            if pd.notnull(pop_num):
-                props["Info_Bevoelkerung"] = f"{int(pop_num):,}".replace(",", ".")
-            else:
-                props["Info_Bevoelkerung"] = clean_val(info.get("Bevölkerung"))
-
-            raw_val = clean_val(info["Row_Data"].get(selected_chart_col))
-            first_val = (
-                [x.strip() for x in raw_val.split(";") if x.strip()][0]
-                if ";" in raw_val
-                else raw_val
-            )
-            props["Selected_Category"] = first_val
+        pop_num = info.get("Bevoelkerung_Num")
+        if pd.notnull(pop_num):
+            props["Info_Bevoelkerung"] = f"{int(pop_num):,}".replace(",", ".")
         else:
-            props["Im_Projekt"] = "Nein"
-            props["Info_Status"] = "Nicht erfasst"
-            props["Info_Angebot"] = "-"
-            props["Info_Einstieg"] = "-"
-            props["Info_Typ"] = "-"
-            props["Info_RB"] = "-"
-            props["Info_Partei"] = "-"
-            props["Info_Klasse"] = "-"
-            props["Info_Zentral"] = "-"
-            props["Info_Bevoelkerung"] = "-"
-            props["Selected_Category"] = ""
+            props["Info_Bevoelkerung"] = clean_val(info.get("Bevölkerung"))
+
+        raw_val = clean_val(info.get("Row_Data", {}).get(selected_chart_col))
+        first_val = (
+            [x.strip() for x in raw_val.split(";") if x.strip()][0]
+            if ";" in raw_val
+            else raw_val
+        )
+        props["Selected_Category"] = first_val
 
 
 enrich_features(geojson_data["features"])
@@ -365,66 +365,48 @@ if search_kommune != "(NRW Übersicht)":
                     zoom_lvl = 9 if "kreis" in str(target_entry.get("Typ", "")).lower() else 11
                 break
 
+
 # ==============================================================================
-# 5. Styling & Map
+# 6. Styling & Leaflet-Map
 # ==============================================================================
 def style_fn_gemeinden(feature):
     props = feature.get("properties", {})
     key = props.get("MATCH_KEY")
+    target_info = data_by_match_key.get(key)
+    is_highlighted = (
+        search_kommune != "(NRW Übersicht)"
+        and target_info
+        and target_info.get("Kommune") == search_kommune
+    )
+    cat = props.get("Selected_Category")
+    fill = color_map.get(cat, "#00689D")
 
-    if key in recorded_keys_set:
-        target_info = data_by_match_key.get(key)
-        is_highlighted = (
-            search_kommune != "(NRW Übersicht)"
-            and target_info
-            and target_info.get("Kommune") == search_kommune
-        )
-        cat = props.get("Selected_Category")
-        fill = color_map.get(cat, "#00689D")
-
-        return {
-            "fillColor": fill,
-            "color": "#FFD700" if is_highlighted else "#0F2942",
-            "weight": 3.0 if is_highlighted else 1.2,
-            "fillOpacity": 0.85,  # Kräftig im Vordergrund
-        }
     return {
-        "fillColor": "#CBD5E1",
-        "color": "#94A3B8",
-        "weight": 0.5,
-        "fillOpacity": 0.2,
+        "fillColor": fill,
+        "color": "#FFD700" if is_highlighted else "#0F2942",
+        "weight": 3.0 if is_highlighted else 1.3,
+        "fillOpacity": 0.85,
     }
 
 
 def style_fn_kreise(feature):
     props = feature.get("properties", {})
     key = props.get("MATCH_KEY")
-
-    # Nur teilnehmende Landkreise dezent im Hintergrund anzeigen
-    if key in recorded_keys_set:
-        target_info = data_by_match_key.get(key)
-        is_highlighted = (
-            search_kommune != "(NRW Übersicht)"
-            and target_info
-            and target_info.get("Kommune") == search_kommune
-        )
-        cat = props.get("Selected_Category")
-        fill = color_map.get(cat, "#00689D")
-
-        return {
-            "fillColor": fill,
-            "color": "#FFD700" if is_highlighted else "#475569",
-            "weight": 2.5 if is_highlighted else 1.5,
-            "dashArray": "4, 4",     # Gestrichelte Kreisgrenze für klare Differenzierung
-            "fillOpacity": 0.35,     # Heller / transparenter Hintergrund
-        }
+    target_info = data_by_match_key.get(key)
+    is_highlighted = (
+        search_kommune != "(NRW Übersicht)"
+        and target_info
+        and target_info.get("Kommune") == search_kommune
+    )
+    cat = props.get("Selected_Category")
+    fill = color_map.get(cat, "#00689D")
 
     return {
-        "fillColor": "#000000",
-        "color": "#000000",
-        "weight": 0,
-        "fillOpacity": 0,
-        "opacity": 0,
+        "fillColor": fill,
+        "color": "#FFD700" if is_highlighted else "#475569",
+        "weight": 2.5 if is_highlighted else 1.5,
+        "dashArray": "4, 4",
+        "fillOpacity": 0.35,  # Hell und dezent im Hintergrund
     }
 
 
@@ -438,22 +420,12 @@ def highlight_fn_gemeinden(feature):
 
 
 def highlight_fn_kreise(feature):
-    props = feature.get("properties", {})
-    key = props.get("MATCH_KEY")
-    if key in recorded_keys_set:
-        return {
-            "fillColor": "#26BDE2",
-            "color": "#0F2942",
-            "weight": 2.5,
-            "dashArray": "4, 4",
-            "fillOpacity": 0.55,
-        }
     return {
-        "fillColor": "#000000",
-        "color": "#000000",
-        "weight": 0,
-        "fillOpacity": 0,
-        "opacity": 0,
+        "fillColor": "#26BDE2",
+        "color": "#0F2942",
+        "weight": 2.5,
+        "dashArray": "4, 4",
+        "fillOpacity": 0.55,
     }
 
 
@@ -506,8 +478,8 @@ def create_tooltip():
     )
 
 
-# 1. ZUERST Landkreise hinzufügen -> liegen automatisch UNTEN / IM HINTERGRUND
-if geojson_kreise:
+# 1. ZUERST Landkreise (Hintergrund, hell & transparent)
+if geojson_kreise and geojson_kreise["features"]:
     folium.GeoJson(
         geojson_kreise,
         name="Landkreise",
@@ -516,7 +488,7 @@ if geojson_kreise:
         tooltip=create_tooltip(),
     ).add_to(m)
 
-# 2. DANACH Gemeinden hinzufügen -> liegen automatisch OBEN / IM VORDERGRUND
+# 2. DANACH Kommunen (Vordergrund, kräftig)
 folium.GeoJson(
     geojson_data,
     name="Gemeinden",
@@ -526,7 +498,7 @@ folium.GeoJson(
 ).add_to(m)
 
 # ==============================================================================
-# 6. Layout: Karte & Dashboard
+# 7. Layout: Karte & Dashboard
 # ==============================================================================
 col_map, col_side = st.columns([65, 35])
 
@@ -541,18 +513,10 @@ with col_map:
 with col_side:
     st.subheader("Übersicht")
     st.markdown(
-        '<div style="display:flex; align-items:center; margin-bottom:6px;">'
+        '<div style="display:flex; align-items:center; margin-bottom:10px;">'
         '<div style="background-color:#00689D; width:15px; height:15px;'
         ' border-radius:3px; margin-right:8px; flex-shrink:0;"></div><span'
-        ' style="font-size:13px; line-height:1.2;"><b>Erfasste Einheit (Kommune / Kreis)</b></span></div>',
-        unsafe_allow_html=True,
-    )
-    st.markdown(
-        '<div style="display:flex; align-items:center; margin-bottom:10px;">'
-        '<div style="background-color:#CBD5E1; border:1px solid #94A3B8;'
-        ' width:15px; height:15px; border-radius:3px; margin-right:8px;'
-        ' flex-shrink:0;"></div><span style="font-size:13px; color:#475569;'
-        ' line-height:1.2;">Nicht erfasst</span></div>',
+        ' style="font-size:13px; line-height:1.2;"><b>Beteiligte Einheit (Kommune / Kreis)</b></span></div>',
         unsafe_allow_html=True,
     )
 
@@ -604,7 +568,7 @@ with col_side:
     st.plotly_chart(fig, use_container_width=True)
 
 # ==============================================================================
-# 7. Factsheet bei Klick auf ein Polygon
+# 8. Factsheet bei Klick auf ein Polygon
 # ==============================================================================
 clicked_feature = map_output.get("last_active_drawing") if map_output else None
 if clicked_feature:
