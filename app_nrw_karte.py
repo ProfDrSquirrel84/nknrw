@@ -143,7 +143,7 @@ if selected_offers:
     df = df[mask]
 
 # ==============================================================================
-# 3. Aggregation & Erkennung von Mehrfachbewerbungen (2 Angebote & 2 Zeiten)
+# 3. Aggregation & Mehrfachangaben-Erkennung
 # ==============================================================================
 data_by_match_key = {}
 total_applications_count = 0
@@ -196,9 +196,9 @@ for _, row in df.iterrows():
     else:
         total_applications_count += 1
 
-    # Erkennung von genau 2 Angeboten und 2 Einstiegszeitpunkten
-    is_dual_application = (len(ang_list) == 2 and len(start_list) == 2)
-    dual_badge = "🔄 2 Angebote & 2 Zeitpunkte" if is_dual_application else "Standard"
+    # Erkennung von Mehrfachangaben (mehr als 1 Angebot oder mehr als 1 Starttermin)
+    is_multi = (len(ang_list) > 1 or len(start_list) > 1)
+    multi_badge = f"🔄 Mehrfachangabe ({len(ang_list)} Angebote / {len(start_list)} Starttermine)" if is_multi else "Standard"
 
     data_by_match_key[match_key] = {
         "Kommune": clean_val(row.get("Kommune")),
@@ -216,8 +216,8 @@ for _, row in df.iterrows():
         "Info_Einstieg": " / ".join(start_list) if start_list else "-",
         "Angebote_Paare": paired_offers,
         "Anzahl_Projekte": len(paired_offers) if paired_offers else 1,
-        "Is_Dual": is_dual_application,
-        "Dual_Badge": dual_badge,
+        "Is_Multi": is_multi,
+        "Multi_Badge": multi_badge,
         "Row_Data": {k: clean_val(v) for k, v in row.to_dict().items()},
     }
 
@@ -342,11 +342,11 @@ def enrich_features(features):
 
         info = data_by_match_key.get(match_key, {})
         
-        badge_suffix = " 🔄 (2 Module)" if info.get("Is_Dual") else ""
+        badge_suffix = " 🔄 (Mehrfachangabe)" if info.get("Is_Multi") else ""
         props["Im_Projekt"] = (
             f"Ja ({info.get('Anzahl_Projekte', 1)} Modul{'e' if info.get('Anzahl_Projekte', 1) > 1 else ''}){badge_suffix}"
         )
-        props["Is_Dual"] = info.get("Is_Dual", False)
+        props["Is_Multi"] = info.get("Is_Multi", False)
         props["Info_Status"] = clean_val(info.get("Beschluss NKNRW"))
         props["Info_Angebot"] = clean_val(info.get("Info_Angebot"))
         props["Info_Einstieg"] = clean_val(info.get("Info_Einstieg"))
@@ -413,7 +413,7 @@ if search_kommune != "(Übersicht)":
                 break
 
 # ==============================================================================
-# 7. Styling & Leaflet-Karte (mit dickerer Outline für Dual-Fälle)
+# 7. Styling & Leaflet-Karte (Verstärkte Outline für Mehrfachangaben)
 # ==============================================================================
 def style_fn_gemeinden(feature):
     props = feature.get("properties", {})
@@ -427,11 +427,10 @@ def style_fn_gemeinden(feature):
     cat = props.get("Selected_Category")
     fill = color_map.get(cat, "#00689D")
     
-    # Dickere Outline für Doppelanmeldungen (2 Angebote & 2 Einstiegszeitpunkte)
-    is_dual = props.get("Is_Dual", False)
-    weight = 3.8 if is_dual else 1.3
+    is_multi = props.get("Is_Multi", False)
+    weight = 5.0 if is_multi else 1.3
     if is_highlighted:
-        weight = 4.5
+        weight = 6.0
 
     return {
         "fillColor": fill,
@@ -453,10 +452,10 @@ def style_fn_kreise(feature):
     cat = props.get("Selected_Category")
     fill = color_map.get(cat, "#00689D")
     
-    is_dual = props.get("Is_Dual", False)
-    weight = 3.2 if is_dual else 1.5
+    is_multi = props.get("Is_Multi", False)
+    weight = 4.0 if is_multi else 1.5
     if is_highlighted:
-        weight = 4.0
+        weight = 5.0
 
     return {
         "fillColor": fill,
@@ -469,22 +468,22 @@ def style_fn_kreise(feature):
 
 def highlight_fn_gemeinden(feature):
     props = feature.get("properties", {})
-    is_dual = props.get("Is_Dual", False)
+    is_multi = props.get("Is_Multi", False)
     return {
         "fillColor": "#26BDE2",
         "color": "#0F2942",
-        "weight": 4.2 if is_dual else 2.8,
+        "weight": 5.5 if is_multi else 2.8,
         "fillOpacity": 0.95,
     }
 
 
 def highlight_fn_kreise(feature):
     props = feature.get("properties", {})
-    is_dual = props.get("Is_Dual", False)
+    is_multi = props.get("Is_Multi", False)
     return {
         "fillColor": "#26BDE2",
         "color": "#0F2942",
-        "weight": 3.8 if is_dual else 2.5,
+        "weight": 4.5 if is_multi else 2.5,
         "dashArray": "4, 4",
         "fillOpacity": 0.55,
     }
@@ -560,7 +559,7 @@ if geojson_data and geojson_data["features"]:
 # ==============================================================================
 # 8. Hauptlayout: Karte links, Übersicht & Diagramm rechts nebeneinander
 # ==============================================================================
-st.title("🗺️ NRW-Kommunen: Übersicht & Beteiligung")
+st.title("Bewerber-Kommunen: Räumliche Verteilung")
 
 col_map, col_side = st.columns([60, 40])
 
@@ -602,7 +601,7 @@ with col_side:
         st.metric("Erfasste Einwohner", f"{int(unique_pop):,}".replace(",", "."))
 
     st.markdown("---")
-    st.subheader(f"📊 Verteilung: {selected_chart_col}")
+    st.subheader(f"Verteilung: {selected_chart_col}")
 
     series_split = (
         df[selected_chart_col]
@@ -652,7 +651,7 @@ if clicked_feature:
     if key and key in data_by_match_key:
         details = data_by_match_key[key]
 
-        st.info(f"### 📍 Factsheet: {details.get('Kommune')} ({details.get('Dual_Badge')})")
+        st.info(f"### 📍 Factsheet: {details.get('Kommune')} ({details.get('Multi_Badge')})")
         c1, c2, c3, c4 = st.columns(4)
         with c1:
             st.markdown(f"<span style='font-size: 13px;'><b>Typ:</b> {details.get('Typ', '-')}</span>", unsafe_allow_html=True)
