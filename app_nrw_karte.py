@@ -380,7 +380,7 @@ search_kommune = st.sidebar.selectbox(
 )
 
 center_loc = [51.45, 7.50]
-zoom_lvl = 15
+zoom_lvl = 8
 
 if search_kommune != "(Übersicht)":
     target_entry = next(
