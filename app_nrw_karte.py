@@ -100,7 +100,7 @@ for feat in geojson_data["features"]:
         props["Info_RB"] = "-"
         props["Im_Projekt"] = "Nein"
 
-# Such- und Zentrierfunktion
+# Such- und Zentrierfunktion in der Sidebar
 kommune_list = sorted(df["Kommune"].dropna().unique().tolist())
 search_kommune = st.sidebar.selectbox(
     "🔍 Kommune suchen & zentrieren:",
@@ -143,20 +143,40 @@ def style_fn(feature):
         return {
             "fillColor": "#00689D",
             "color": "#FFD700" if is_highlighted else "#0F2942",
-            "weight": 3.0 if is_highlighted else 1.5,
+            "weight": 3.0 if is_highlighted else 1.2,
             "fillOpacity": 0.85,
         }
 
     # Nicht erfasste Kommunen (hellgrau, transparent)
     return {
-        "fillColor": "#E2E8F0",
+        "fillColor": "#CBD5E1",
         "color": "#94A3B8",
-        "weight": 0.6,
-        "fillOpacity": 0.25,
+        "weight": 0.5,
+        "fillOpacity": 0.2,
     }
 
 
-# Folium-Karte (OpenStreetMap ohne API-Key)
+def highlight_fn(feature):
+    props = feature.get("properties", {})
+    ags = str(props.get("AGS", "")).strip().zfill(8)
+
+    # Optisches Hervorheben beim Hovern mit der Maus
+    if ags in recorded_ags_set:
+        return {
+            "fillColor": "#26BDE2",
+            "color": "#0F2942",
+            "weight": 2.8,
+            "fillOpacity": 0.95,
+        }
+    return {
+        "fillColor": "#94A3B8",
+        "color": "#475569",
+        "weight": 1.8,
+        "fillOpacity": 0.45,
+    }
+
+
+# Folium-Karte (OpenStreetMap)
 m = folium.Map(location=center_loc, zoom_start=zoom_lvl, tiles="OpenStreetMap")
 
 tooltip = folium.GeoJsonTooltip(
@@ -171,7 +191,7 @@ tooltip = folium.GeoJsonTooltip(
     ],
     aliases=[
         "Kommune:",
-        "Projektbeteiligung:",
+        "Projektteilnahme:",
         "Beschluss:",
         "Angebot:",
         "Start:",
@@ -186,17 +206,18 @@ folium.GeoJson(
     geojson_data,
     name="Gemeinden",
     style_function=style_fn,
+    highlight_function=highlight_fn,
     tooltip=tooltip,
 ).add_to(m)
 
-# Layout
+# Layout: Karte links, Status/KPIs rechts
 col_map, col_side = st.columns([3, 1])
 
 with col_map:
     map_output = st_folium(
         m,
         width="100%",
-        height=680,
+        height=720,
         returned_objects=["last_active_drawing"],
     )
 
@@ -210,8 +231,8 @@ with col_side:
     )
     st.markdown(
         '<div style="display:flex; align-items:center; margin-bottom:15px;">'
-        '<div style="background-color:#E2E8F0; border:1px solid #94A3B8; width:18px; height:18px; border-radius:3px; margin-right:8px; flex-shrink:0;"></div>'
-        '<span style="font-size:14px; color:#475569; line-height:1.2;">Nicht erfasst / keine Daten</span></div>',
+        '<div style="background-color:#CBD5E1; border:1px solid #94A3B8; width:18px; height:18px; border-radius:3px; margin-right:8px; flex-shrink:0;"></div>'
+        '<span style="font-size:14px; color:#475569; line-height:1.2;">Nicht erfasst</span></div>',
         unsafe_allow_html=True,
     )
     st.divider()
@@ -237,6 +258,3 @@ if clicked_feature:
         c3.markdown(f"**Beschlussstatus:** {details.get('Status_Beschluss', '-')}")
         c4.markdown(f"**Projektangebot:** {details.get('Angebot', '-')}")
         c4.markdown(f"**Einstieg:** {details.get('Einstiegszeitpunkt', '-')}")
-
-with st.expander("Tabellarische Übersicht", expanded=False):
-    st.dataframe(df, use_container_width=True)
