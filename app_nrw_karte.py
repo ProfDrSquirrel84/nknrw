@@ -372,7 +372,7 @@ color_map = {
 }
 
 # ==============================================================================
-# 6. GeoJSON-Properties anreichern
+# 6. GeoJSON-Properties anreichern (für Gemeinden, Kreise & Landschaftsverband)
 # ==============================================================================
 def enrich_features(features):
     if not features:
@@ -421,6 +421,8 @@ if geojson_data:
     enrich_features(geojson_data["features"])
 if geojson_kreise:
     enrich_features(geojson_kreise["features"])
+if geojson_lv and geojson_lv.get("features"):
+    enrich_features(geojson_lv["features"])
 
 # Such- und Zentrierfunktion
 current_kommune_list = sorted(
@@ -445,7 +447,7 @@ if search_kommune != "(Übersicht)":
     )
     if target_entry:
         target_key = str(target_entry["Row_Data"].get("AGS_MATCH", "")).strip()
-        all_features = (geojson_kreise["features"] if geojson_kreise else []) + (geojson_data["features"] if geojson_data else [])
+        all_features = (geojson_kreise["features"] if geojson_kreise else []) + (geojson_data["features"] if geojson_data else []) + (geojson_lv["features"] if geojson_lv and geojson_lv.get("features") else [])
         for feat in all_features:
             if feat.get("properties", {}).get("MATCH_KEY") == target_key:
                 geom = feat.get("geometry", {})
@@ -600,11 +602,7 @@ if geojson_lv and geojson_lv.get("features"):
         geojson_lv,
         name="Landschaftsverband",
         style_function=style_fn_lv,
-        tooltip=folium.GeoJsonTooltip(
-            fields=["GEN", "AGS"],
-            aliases=["Verband:", "AGS:"],
-            style=tooltip_style
-        ),
+        tooltip=create_tooltip(),
     ).add_to(m)
 
 # 2. DANACH Landkreise
