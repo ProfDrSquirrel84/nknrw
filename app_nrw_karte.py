@@ -58,7 +58,7 @@ def load_data():
         )
         df["Kommune"] = df[kom_col] if kom_col else df["AGS"]
 
-    # Spalten für Bevölkerung und Partei flexibel matchen
+    # Spalten für Bevölkerung und Partei matchen
     bev_col = next(
         (
             c
@@ -98,7 +98,7 @@ st.title("🗺️ NRW-Kommunen: Übersicht & Beteiligung")
 data_by_ags = df.set_index("AGS").to_dict(orient="index")
 recorded_ags_set = set(df["AGS"])
 
-# GeoJSON-Properties für den Hover-Tooltip vorbereiten
+# GeoJSON-Properties für den Tooltip vorbereiten
 for feat in geojson_data["features"]:
     props = feat["properties"]
     ags = str(props.get("AGS", "")).strip().zfill(8)
@@ -112,7 +112,6 @@ for feat in geojson_data["features"]:
         props["Info_RB"] = row.get("Regierungsbezirk", "-")
         props["Info_Partei"] = row.get("Partei", "-")
 
-        # Tausender-Formatierung der Einwohnerzahl sicherstellen
         raw_bev = str(row.get("Bevoelkerung", "-")).strip()
         digits_bev = "".join(filter(str.isdigit, raw_bev))
         if digits_bev:
@@ -131,7 +130,7 @@ for feat in geojson_data["features"]:
         props["Info_Bevoelkerung"] = "-"
         props["Im_Projekt"] = "Nein"
 
-# Such- und Zentrierfunktion in der Sidebar
+# Such- und Zentrierfunktion
 kommune_list = sorted(df["Kommune"].dropna().unique().tolist())
 search_kommune = st.sidebar.selectbox(
     "🔍 Kommune suchen & zentrieren:",
@@ -165,7 +164,6 @@ def style_fn(feature):
     props = feature.get("properties", {})
     ags = str(props.get("AGS", "")).strip().zfill(8)
 
-    # Erfasste Kommunen
     if ags in recorded_ags_set:
         is_highlighted = (
             search_kommune != "(NRW Übersicht)"
@@ -178,7 +176,6 @@ def style_fn(feature):
             "fillOpacity": 0.85,
         }
 
-    # Nicht erfasste Kommunen (transparent, dezent)
     return {
         "fillColor": "#CBD5E1",
         "color": "#94A3B8",
@@ -191,7 +188,6 @@ def highlight_fn(feature):
     props = feature.get("properties", {})
     ags = str(props.get("AGS", "")).strip().zfill(8)
 
-    # Hover-Effekt: Starke Hervorhebung bei Mauszeigerkontakt
     if ags in recorded_ags_set:
         return {
             "fillColor": "#26BDE2",
@@ -209,6 +205,19 @@ def highlight_fn(feature):
 
 # Folium-Karte (OpenStreetMap)
 m = folium.Map(location=center_loc, zoom_start=zoom_lvl, tiles="OpenStreetMap")
+
+# Kompaktes Styling für den Tooltip (kleinere Schrift, reduziertes Padding)
+tooltip_style = """
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    font-size: 11px;
+    line-height: 1.35;
+    padding: 6px 10px;
+    background-color: #ffffff;
+    color: #1a202c;
+    border: 1px solid #cbd5e1;
+    border-radius: 6px;
+    box-shadow: 0 4px 10px rgba(0, 0, 0, 0.12);
+"""
 
 tooltip = folium.GeoJsonTooltip(
     fields=[
@@ -233,6 +242,7 @@ tooltip = folium.GeoJsonTooltip(
         "Typ:",
         "Regierungsbezirk:",
     ],
+    style=tooltip_style,
     localize=True,
     sticky=False,
 )
@@ -275,7 +285,7 @@ with col_side:
     st.metric("Gesamtzahl Anträge", len(df))
     st.metric("Kommunen gesamt (NRW)", len(geojson_data.get("features", [])))
 
-# Factsheet bei Klick auf ein Polygon
+# Factsheet bei Klick auf ein Polygon (hier ebenfalls kompakte Schriftgröße)
 clicked_feature = map_output.get("last_active_drawing") if map_output else None
 if clicked_feature:
     clicked_props = clicked_feature.get("properties", {})
@@ -285,11 +295,15 @@ if clicked_feature:
         details = data_by_ags[clicked_ags]
         st.info(f"### 📍 Factsheet: {details.get('Kommune')}")
         c1, c2, c3, c4 = st.columns(4)
-        c1.markdown(f"**Typ:** {details.get('Typ', '-')}")
-        c1.markdown(f"**Regierungsbezirk:** {details.get('Regierungsbezirk', '-')}")
-        c2.markdown(f"**Bevölkerung:** {clicked_props.get('Info_Bevoelkerung', '-')}")
-        c2.markdown(f"**Partei:** {details.get('Partei', '-')}")
-        c3.markdown(f"**BBSR-Einordnung:** {details.get('BBSR_Einordnung', '-')}")
-        c3.markdown(f"**Beschlussstatus:** {details.get('Status_Beschluss', '-')}")
-        c4.markdown(f"**Projektangebot:** {details.get('Angebot', '-')}")
-        c4.markdown(f"**Einstieg:** {details.get('Einstiegszeitpunkt', '-')}")
+        with c1:
+            st.markdown(f"<span style='font-size: 13px;'><b>Typ:</b> {details.get('Typ', '-')}</span>", unsafe_allow_html=True)
+            st.markdown(f"<span style='font-size: 13px;'><b>Regierungsbezirk:</b> {details.get('Regierungsbezirk', '-')}</span>", unsafe_allow_html=True)
+        with c2:
+            st.markdown(f"<span style='font-size: 13px;'><b>Bevölkerung:</b> {clicked_props.get('Info_Bevoelkerung', '-')}</span>", unsafe_allow_html=True)
+            st.markdown(f"<span style='font-size: 13px;'><b>Partei:</b> {details.get('Partei', '-')}</span>", unsafe_allow_html=True)
+        with c3:
+            st.markdown(f"<span style='font-size: 13px;'><b>BBSR-Einordnung:</b> {details.get('BBSR_Einordnung', '-')}</span>", unsafe_allow_html=True)
+            st.markdown(f"<span style='font-size: 13px;'><b>Beschlussstatus:</b> {details.get('Status_Beschluss', '-')}</span>", unsafe_allow_html=True)
+        with c4:
+            st.markdown(f"<span style='font-size: 13px;'><b>Projektangebot:</b> {details.get('Angebot', '-')}</span>", unsafe_allow_html=True)
+            st.markdown(f"<span style='font-size: 13px;'><b>Einstieg:</b> {details.get('Einstiegszeitpunkt', '-') or '-'}</span>", unsafe_allow_html=True)
