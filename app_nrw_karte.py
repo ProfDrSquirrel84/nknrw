@@ -97,10 +97,31 @@ def load_data():
     return df
 
 
-df = load_data()
+df_raw = load_data()
 
 # ==============================================================================
-# 2. Aggregation & Vorbereitung des Match-Dictionaries
+# 2. Interaktive Auswahlfilter in der Sidebar
+# ==============================================================================
+all_available_units = sorted(list(df_raw["Kommune"].dropna().unique()))
+
+st.sidebar.markdown("### 🎯 Filter & Steuerung")
+
+selected_units = st.sidebar.multiselect(
+    "Einheiten auswählen (leer = alle anzeigen):",
+    options=all_available_units,
+    default=[],
+    help="Wähle eine oder mehrere Kommunen / Kreise aus, um Karte, KPIs und Diagramm zu filtern.",
+    key="ms_selected_units",
+)
+
+# Dynamische Filterung des DataFrames
+if selected_units:
+    df = df_raw[df_raw["Kommune"].isin(selected_units)].copy()
+else:
+    df = df_raw.copy()
+
+# ==============================================================================
+# 3. Aggregation & Vorbereitung des Match-Dictionaries (auf gefilterter Basis)
 # ==============================================================================
 data_by_match_key = {}
 total_applications_count = 0
@@ -174,29 +195,16 @@ for _, row in df.iterrows():
 
 recorded_keys_set = set(data_by_match_key.keys())
 
-
 # ==============================================================================
-# 3. GeoJSONs laden & strikt auf erfasste Einheiten filtern
+# 4. GeoJSONs laden & strikt auf die ausgewählten Einheiten filtern
 # ==============================================================================
 @st.cache_data
-def load_geojsons(allowed_keys):
+def load_base_geojsons():
     if not GEOJSON_GEMEINDEN.is_file():
         st.error(f"Datei 'nrw_gemeinden.geojson' fehlt: {GEOJSON_GEMEINDEN}")
         st.stop()
     with open(GEOJSON_GEMEINDEN, "r", encoding="utf-8") as f:
         gemeinden_data = json.load(f)
-
-    # Filter: Nur Gemeinden behalten, deren bereinigter AGS in daten.csv existiert
-    filtered_gemeinden = []
-    for feat in gemeinden_data.get("features", []):
-        if not feat.get("geometry"):
-            continue
-        props = feat.setdefault("properties", {})
-        raw_code = str(props.get("AGS") or props.get("AGS_0") or "")
-        key = "".join(filter(str.isdigit, raw_code)).lstrip("0")
-        if key in allowed_keys:
-            filtered_gemeinden.append(feat)
-    gemeinden_data["features"] = filtered_gemeinden
 
     kreise_data = None
     if GEOJSON_KREISE.is_file():
@@ -210,26 +218,32 @@ def load_geojsons(allowed_keys):
         except Exception:
             kreise_data = None
 
-    if kreise_data:
-        # Filter: Nur Kreise behalten, die in daten.csv vorkommen
-        filtered_kreise = []
-        for feat in kreise_data.get("features", []):
-            if not feat.get("geometry"):
-                continue
-            props = feat.setdefault("properties", {})
-            raw_code = str(props.get("AGS") or props.get("AGS_0") or "")
-            key = "".join(filter(str.isdigit, raw_code)).lstrip("0")
-            if key in allowed_keys:
-                filtered_kreise.append(feat)
-        kreise_data["features"] = filtered_kreise
-
     return gemeinden_data, kreise_data
 
 
-geojson_data, geojson_kreise = load_geojsons(recorded_keys_set)
+base_gemeinden, base_kreise = load_base_geojsons()
+
+# Filtert die Features zur Laufzeit anhand der aktuellen Auswahl (recorded_keys_set)
+def filter_features(geojson_dict, allowed_keys):
+    if not geojson_dict:
+        return None
+    filtered = []
+    for feat in geojson_dict.get("features", []):
+        if not feat.get("geometry"):
+            continue
+        props = feat.setdefault("properties", {})
+        raw_code = str(props.get("AGS") or props.get("AGS_0") or "")
+        key = "".join(filter(str.isdigit, raw_code)).lstrip("0")
+        if key in allowed_keys:
+            filtered.append(feat)
+    return {"type": "FeatureCollection", "features": filtered}
+
+
+geojson_data = filter_features(base_gemeinden, recorded_keys_set)
+geojson_kreise = filter_features(base_kreise, recorded_keys_set) if base_kreise else None
 
 # ==============================================================================
-# 4. Variablenauswahl für Diagramm & synchrone Farbgebung
+# 5. Variablenauswahl für Diagramm & synchrone Farbgebung
 # ==============================================================================
 allowed_vars = [
     "Kreis",
@@ -244,7 +258,7 @@ allowed_vars = [
     "Vorerfahrung",
 ]
 
-chart_candidates = [v for v in allowed_vars if v in df.columns]
+chart_candidates = [v for v in allowed_vars if v in df_raw.columns]
 
 selected_chart_col = st.sidebar.selectbox(
     "📊 Variable für Diagramm & Kartenfärbung:",
@@ -270,24 +284,26 @@ PALETTE = [
     "#64748B",
 ]
 
-all_vals = (
-    df[selected_chart_col]
+# Farbpalette orientiert sich an allen Werten (damit Farben stabil bleiben)
+all_vals_global = (
+    df_raw[selected_chart_col]
     .dropna()
     .astype(str)
     .str.split(";")
     .explode()
     .str.strip()
 )
-unique_categories = sorted([v for v in all_vals.unique() if v and v not in ("nan", "-")])
+unique_categories = sorted([v for v in all_vals_global.unique() if v and v not in ("nan", "-")])
 color_map = {
     val: PALETTE[i % len(PALETTE)] for i, val in enumerate(unique_categories)
 }
 
-
 # ==============================================================================
-# 5. GeoJSON-Properties der gefilterten Einheiten anreichern
+# 6. GeoJSON-Properties anreichern
 # ==============================================================================
 def enrich_features(features):
+    if not features:
+        return
     for feat in features:
         props = feat.setdefault("properties", {})
         props["GEN"] = clean_val(
@@ -325,19 +341,20 @@ def enrich_features(features):
         props["Selected_Category"] = first_val
 
 
-enrich_features(geojson_data["features"])
+if geojson_data:
+    enrich_features(geojson_data["features"])
 if geojson_kreise:
     enrich_features(geojson_kreise["features"])
 
-# Such- und Zentrierfunktion
-kommune_list = sorted(
+# Einzelne Zentrierung / Suchschlitz (bezogen auf die gefilterte Menge)
+current_kommune_list = sorted(
     list(dict.fromkeys(
         v["Kommune"] for v in data_by_match_key.values() if v.get("Kommune")
     ))
 )
 search_kommune = st.sidebar.selectbox(
-    "🔍 Kommune / Kreis suchen & zentrieren:",
-    options=["(NRW Übersicht)"] + kommune_list,
+    "🔍 In gefilterter Auswahl zentrieren:",
+    options=["(Übersicht)"] + current_kommune_list,
     index=0,
     key="sb_search_kommune_kreis",
 )
@@ -345,14 +362,14 @@ search_kommune = st.sidebar.selectbox(
 center_loc = [51.45, 7.50]
 zoom_lvl = 8
 
-if search_kommune != "(NRW Übersicht)":
+if search_kommune != "(Übersicht)":
     target_entry = next(
         (v for v in data_by_match_key.values() if v.get("Kommune") == search_kommune),
         None,
     )
     if target_entry:
         target_key = str(target_entry["Row_Data"].get("AGS_MATCH", "")).strip()
-        all_features = (geojson_kreise["features"] if geojson_kreise else []) + geojson_data["features"]
+        all_features = (geojson_kreise["features"] if geojson_kreise else []) + (geojson_data["features"] if geojson_data else [])
         for feat in all_features:
             if feat.get("properties", {}).get("MATCH_KEY") == target_key:
                 geom = feat.get("geometry", {})
@@ -365,16 +382,15 @@ if search_kommune != "(NRW Übersicht)":
                     zoom_lvl = 9 if "kreis" in str(target_entry.get("Typ", "")).lower() else 11
                 break
 
-
 # ==============================================================================
-# 6. Styling & Leaflet-Map
+# 7. Styling & Leaflet-Karte
 # ==============================================================================
 def style_fn_gemeinden(feature):
     props = feature.get("properties", {})
     key = props.get("MATCH_KEY")
     target_info = data_by_match_key.get(key)
     is_highlighted = (
-        search_kommune != "(NRW Übersicht)"
+        search_kommune != "(Übersicht)"
         and target_info
         and target_info.get("Kommune") == search_kommune
     )
@@ -394,7 +410,7 @@ def style_fn_kreise(feature):
     key = props.get("MATCH_KEY")
     target_info = data_by_match_key.get(key)
     is_highlighted = (
-        search_kommune != "(NRW Übersicht)"
+        search_kommune != "(Übersicht)"
         and target_info
         and target_info.get("Kommune") == search_kommune
     )
@@ -406,7 +422,7 @@ def style_fn_kreise(feature):
         "color": "#FFD700" if is_highlighted else "#475569",
         "weight": 2.5 if is_highlighted else 1.5,
         "dashArray": "4, 4",
-        "fillOpacity": 0.35,  # Hell und dezent im Hintergrund
+        "fillOpacity": 0.35,  # Dezent im Hintergrund
     }
 
 
@@ -478,7 +494,7 @@ def create_tooltip():
     )
 
 
-# 1. ZUERST Landkreise (Hintergrund, hell & transparent)
+# 1. ZUERST Landkreise (Hintergrund)
 if geojson_kreise and geojson_kreise["features"]:
     folium.GeoJson(
         geojson_kreise,
@@ -488,87 +504,30 @@ if geojson_kreise and geojson_kreise["features"]:
         tooltip=create_tooltip(),
     ).add_to(m)
 
-# 2. DANACH Kommunen (Vordergrund, kräftig)
-folium.GeoJson(
-    geojson_data,
-    name="Gemeinden",
-    style_function=style_fn_gemeinden,
-    highlight_function=highlight_fn_gemeinden,
-    tooltip=create_tooltip(),
-).add_to(m)
+# 2. DANACH Kommunen (Vordergrund)
+if geojson_data and geojson_data["features"]:
+    folium.GeoJson(
+        geojson_data,
+        name="Gemeinden",
+        style_function=style_fn_gemeinden,
+        highlight_function=highlight_fn_gemeinden,
+        tooltip=create_tooltip(),
+    ).add_to(m)
 
 # ==============================================================================
-# 7. Layout: Karte & Dashboard
+# 8. Layout: Karte über die volle Breite
 # ==============================================================================
-col_map, col_side = st.columns([65, 35])
+st.title("🗺️ NRW-Kommunen: Übersicht & Beteiligung")
 
-with col_map:
-    map_output = st_folium(
-        m,
-        width="100%",
-        height=740,
-        returned_objects=["last_active_drawing"],
-    )
-
-with col_side:
-    st.subheader("Übersicht")
-    st.markdown(
-        '<div style="display:flex; align-items:center; margin-bottom:10px;">'
-        '<div style="background-color:#00689D; width:15px; height:15px;'
-        ' border-radius:3px; margin-right:8px; flex-shrink:0;"></div><span'
-        ' style="font-size:13px; line-height:1.2;"><b>Beteiligte Einheit (Kommune / Kreis)</b></span></div>',
-        unsafe_allow_html=True,
-    )
-
-    kpi1, kpi2 = st.columns(2)
-    kpi1.metric("Bewerber", len(data_by_match_key))
-    kpi2.metric("Projektanträge", total_applications_count)
-
-    unique_pop = (
-        df.drop_duplicates(subset=["AGS_MATCH"])["Bevoelkerung_Num"].dropna().sum()
-    )
-    if unique_pop > 0:
-        st.metric("Erfasste Einwohner", f"{int(unique_pop):,}".replace(",", "."))
-
-    st.markdown("---")
-    st.markdown(f"##### 📊 Verteilung: {selected_chart_col}")
-
-    series_split = (
-        df[selected_chart_col]
-        .dropna()
-        .astype(str)
-        .str.split(";")
-        .explode()
-        .str.strip()
-    )
-    series_split = series_split[series_split != ""]
-
-    counts = series_split.value_counts().reset_index()
-    counts.columns = [selected_chart_col, "Anzahl"]
-    counts = counts.sort_values(by="Anzahl", ascending=True)
-
-    fig = px.bar(
-        counts,
-        x="Anzahl",
-        y=selected_chart_col,
-        orientation="h",
-        text="Anzahl",
-        color=selected_chart_col,
-        color_discrete_map=color_map,
-    )
-    fig.update_traces(textposition="outside")
-    fig.update_layout(
-        showlegend=False,
-        height=max(320, len(counts) * 34),
-        margin=dict(l=0, r=30, t=10, b=10),
-        xaxis_title="Fallzahl / Nennungen",
-        yaxis_title="",
-        yaxis=dict(tickfont=dict(size=11)),
-    )
-    st.plotly_chart(fig, use_container_width=True)
+map_output = st_folium(
+    m,
+    width="100%",
+    height=800,
+    returned_objects=["last_active_drawing"],
+)
 
 # ==============================================================================
-# 8. Factsheet bei Klick auf ein Polygon
+# 9. Factsheet bei Klick auf ein Polygon
 # ==============================================================================
 clicked_feature = map_output.get("last_active_drawing") if map_output else None
 if clicked_feature:
@@ -602,3 +561,73 @@ if clicked_feature:
                     )
             else:
                 st.markdown("<span style='font-size: 12px;'>-</span>", unsafe_allow_html=True)
+
+st.markdown("---")
+
+# ==============================================================================
+# 10. Bereich unter der Karte: Dynamische KPIs & Balkendiagramm
+# ==============================================================================
+col_kpi, col_chart = st.columns([32, 68])
+
+with col_kpi:
+    st.subheader("Übersicht")
+    filter_label = f"({len(df)} Einheiten aktiv)" if selected_units else "(Alle Einheiten)"
+    st.caption(f"Aktuelle Filterung: **{filter_label}**")
+
+    st.markdown(
+        '<div style="display:flex; align-items:center; margin-bottom:12px;">'
+        '<div style="background-color:#00689D; width:15px; height:15px;'
+        ' border-radius:3px; margin-right:8px; flex-shrink:0;"></div><span'
+        ' style="font-size:13px; line-height:1.2;"><b>Beteiligte Einheit</b></span></div>',
+        unsafe_allow_html=True,
+    )
+
+    kpi1, kpi2 = st.columns(2)
+    kpi1.metric("Bewerber", len(data_by_match_key))
+    kpi2.metric("Projektanträge", total_applications_count)
+
+    unique_pop = (
+        df.drop_duplicates(subset=["AGS_MATCH"])["Bevoelkerung_Num"].dropna().sum()
+    )
+    if unique_pop > 0:
+        st.metric("Erfasste Einwohner", f"{int(unique_pop):,}".replace(",", "."))
+
+with col_chart:
+    st.subheader(f"📊 Verteilung: {selected_chart_col}")
+
+    series_split = (
+        df[selected_chart_col]
+        .dropna()
+        .astype(str)
+        .str.split(";")
+        .explode()
+        .str.strip()
+    )
+    series_split = series_split[series_split != ""]
+
+    if not series_split.empty:
+        counts = series_split.value_counts().reset_index()
+        counts.columns = [selected_chart_col, "Anzahl"]
+        counts = counts.sort_values(by="Anzahl", ascending=True)
+
+        fig = px.bar(
+            counts,
+            x="Anzahl",
+            y=selected_chart_col,
+            orientation="h",
+            text="Anzahl",
+            color=selected_chart_col,
+            color_discrete_map=color_map,
+        )
+        fig.update_traces(textposition="outside")
+        fig.update_layout(
+            showlegend=False,
+            height=max(300, len(counts) * 36),
+            margin=dict(l=0, r=30, t=10, b=10),
+            xaxis_title="Fallzahl / Nennungen",
+            yaxis_title="",
+            yaxis=dict(tickfont=dict(size=12)),
+        )
+        st.plotly_chart(fig, use_container_width=True)
+    else:
+        st.info("Keine Daten für die gewählte Kombination vorhanden.")
