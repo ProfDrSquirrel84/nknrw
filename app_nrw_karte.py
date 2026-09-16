@@ -14,7 +14,7 @@ DATA_PATH = BASE_DIR / "daten.csv"
 GEOJSON_GEMEINDEN = BASE_DIR / "nrw_gemeinden.geojson"
 GEOJSON_KREISE = BASE_DIR / "nrw_kreise.geojson"
 
-# Falls die Kreisdatei direkt von GitHub bezogen werden soll (Fallback)
+# Fallback-URL für GitHub (falls die Datei remote nachgeladen werden soll)
 GITHUB_KREISE_RAW_URL = "https://raw.githubusercontent.com/<DEIN_GITHUB_USER>/<DEIN_REPO>/main/nrw_kreise.geojson"
 
 
@@ -50,7 +50,7 @@ def load_data():
         st.stop()
 
     df = df.rename(columns={ags_col: "AGS"})
-    # AGS als bereinigte Ziffernfolge (ohne führende Null für den robusten Match)
+    # AGS als Ziffernfolge ohne führende Nullen für einen robusten Match
     df["AGS_MATCH"] = (
         df["AGS"].astype(str).str.extract(r"(\d+)")[0].dropna().str.lstrip("0")
     )
@@ -149,6 +149,7 @@ for _, row in df.iterrows():
 
     paired_offers = []
 
+    # 1 Angebot mit mehreren alternativen Terminen
     if len(ang_list) == 1 and len(start_list) > 1:
         alt_starts = " oder ".join(start_list)
         paired_offers.append({
@@ -156,6 +157,7 @@ for _, row in df.iterrows():
             "start": f"{alt_starts} (alternativ)",
         })
         total_applications_count += 1
+    # Mehrere Angebote und Termine (1:1 Zuordnung)
     elif len(ang_list) > 1 and len(start_list) == len(ang_list):
         for ang, st_time in zip(ang_list, start_list):
             paired_offers.append({
@@ -163,6 +165,7 @@ for _, row in df.iterrows():
                 "start": st_time,
             })
         total_applications_count += len(ang_list)
+    # Asymmetrisch oder einfacher Fall
     elif ang_list:
         for idx, ang in enumerate(ang_list):
             st_val = (
@@ -223,6 +226,7 @@ selected_chart_col = st.sidebar.selectbox(
     index=(
         chart_candidates.index("Angebot") if "Angebot" in chart_candidates else 0
     ),
+    key="sb_selected_variable",
 )
 
 PALETTE = [
@@ -252,7 +256,6 @@ unique_categories = sorted([v for v in all_vals.unique() if v and v != "nan"])
 color_map = {
     val: PALETTE[i % len(PALETTE)] for i, val in enumerate(unique_categories)
 }
-
 
 # ==============================================================================
 # 4. GeoJSON-Properties anreichern
@@ -306,24 +309,21 @@ def enrich_features(features):
             props["Selected_Category"] = None
             props["Has_Data"] = False
 
-
 enrich_features(geojson_data["features"])
 if geojson_kreise:
     enrich_features(geojson_kreise["features"])
 
 # Such- und Zentrierfunktion
 kommune_list = sorted(
-    list({v["Kommune"] for v in data_by_match_key.values() if v.get("Kommune")})
+    list(dict.fromkeys(
+        v["Kommune"] for v in data_by_match_key.values() if v.get("Kommune")
+    ))
 )
 search_kommune = st.sidebar.selectbox(
     "🔍 Kommune / Kreis suchen & zentrieren:",
-    ["(NRW Übersicht)"] + kommune_list,
+    options=["(NRW Übersicht)"] + kommune_list,
     index=0,
-)
-search_kommune = st.sidebar.selectbox(
-    "🔍 Kommune / Kreis suchen & zentrieren:",
-    ["(NRW Übersicht)"] + kommune_list,
-    index=0,
+    key="sb_search_kommune_kreis",
 )
 
 center_loc = [51.45, 7.50]
@@ -350,7 +350,6 @@ if search_kommune != "(NRW Übersicht)":
                 center_loc = [avg_lat, avg_lon]
                 zoom_lvl = 9 if "kreis" in str(target_entry.get("Typ", "")).lower() else 11
                 break
-
 
 # ==============================================================================
 # 5. Styling & Tooltip
@@ -387,7 +386,6 @@ def style_fn_kreise(feature):
     props = feature.get("properties", {})
     key = props.get("MATCH_KEY")
 
-    # Nur erfasste Kreise anzeigen, der Rest bleibt transparent
     if key in recorded_keys_set:
         target_info = data_by_match_key.get(key)
         is_highlighted = (
