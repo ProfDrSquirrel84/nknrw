@@ -21,7 +21,7 @@ GITHUB_GEMEINDEN_BG_RAW_URL = "https://raw.githubusercontent.com/<DEIN_GITHUB_US
 GITHUB_LV_RAW_URL = "https://raw.githubusercontent.com/<DEIN_GITHUB_USER>/<DEIN_REPO>/main/landschaftsverband_rheinland.geojson"
 
 # ==============================================================================
-# Custom CSS für Vollbildkarte & schwebendes Overlay (oben rechts in der Karte)
+# Custom CSS für Vollbildkarte & vergrößertes schwebendes Overlay (Live-Übersicht)
 # ==============================================================================
 st.markdown("""
     <style>
@@ -41,12 +41,12 @@ st.markdown("""
         top: 20px;
         right: 20px;
         z-index: 99999;
-        background: rgba(255, 255, 255, 0.95);
-        padding: 12px 16px;
-        border-radius: 8px;
-        box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+        background: rgba(255, 255, 255, 0.96);
+        padding: 16px 20px;
+        border-radius: 10px;
+        box-shadow: 0 4px 20px rgba(0,0,0,0.25);
         border: 1px solid #cbd5e1;
-        width: 270px;
+        width: 320px;
         pointer-events: auto;
     }
     </style>
@@ -423,8 +423,8 @@ if search_kommune != "(Übersicht)":
 def style_fn_gemeinden_bg(feature):
     return {
         "fillColor": "transparent",
-        "color": "#000000",
-        "weight": 0.5,
+        "color": "#cbd5e1",
+        "weight": 0.8,
         "fillOpacity": 0.0,
     }
 
@@ -594,7 +594,7 @@ if geojson_data and geojson_data["features"]:
     ).add_to(m)
 
 # ==============================================================================
-# 7. Vollbildkarte mit Live-Übersicht (Overlay)
+# 7. Vollbildkarte mit vergrößerter Live-Übersicht (Overlay)
 # ==============================================================================
 st.title("🗺️ NRW-Kommunen: Übersicht & Beteiligung")
 
@@ -614,14 +614,14 @@ pop_str = f"{int(unique_pop):,}".replace(",", ".") if unique_pop > 0 else "-"
 
 st.markdown(f"""
     <div class="floating-overlay-top-right">
-        <b style="font-size:12px; color:#0F2942;">📊 Live-Übersicht</b><br>
-        <span style="font-size:10px; color:#64748B;">{filter_label}</span>
-        <hr style="margin: 4px 0; border-color:#cbd5e1;">
-        <div style="display:flex; justify-content:space-between; font-size:11px;">
+        <b style="font-size:15px; color:#0F2942;">📊 Live-Übersicht</b><br>
+        <span style="font-size:12px; color:#64748B;">{filter_label}</span>
+        <hr style="margin: 6px 0; border-color:#cbd5e1;">
+        <div style="display:flex; justify-content:space-between; font-size:13px;">
             <span>Bewerber: <b>{len(data_by_match_key)}</b></span>
             <span>Anträge: <b>{total_applications_count}</b></span>
         </div>
-        <div style="font-size:11px; margin-top:3px;">
+        <div style="font-size:13px; margin-top:4px;">
             Erfasste Einwohner: <b>{pop_str}</b>
         </div>
     </div>
