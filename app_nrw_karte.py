@@ -672,91 +672,98 @@ if clicked_feature:
                 st.markdown("<span style='font-size: 12px;'>-</span>", unsafe_allow_html=True)
 
 # ==============================================================================
-# 9. Sechs Diagramme in einem aufklappbaren Expander (2 Reihen à 3 Spalten)
+# 9. Diagramme in Tabs unterteilt unterhalb der Karte
 # ==============================================================================
-with st.expander("📊 Detailauswertungen & Diagramme anzeigen", expanded=False):
-    sorting_orders = {
-        "Gemeindegrößenklasse": [
-            "Kommunalverband / Gemeindeverband",
-            "Kreis",
-            "Kleinstadt",
-            "Mittelstadt",
-            "Großstadt",       
-        ],
-        "Zentralörtliche Einstufung": [
-            "Kommunalverband / Gemeindeverband",
-            "Kreis",
-            "keine zentralörtliche Einstufung",
-            "Unterzentrum",
-            "Mittelzentrum",
-            "Oberzentrum",
-       ],
-        "Vorerfahrung": [
-            "Beginner",
-            "First Stepper",
-            "Performer",
-            "Professionals",
-        ],
-    }
+st.markdown("---")
+st.subheader("📊 Auswertungen im Überblick")
 
-    chart_columns_config = [
+sorting_orders = {
+    "Gemeindegrößenklasse": [
+        "Kommunalverband / Gemeindeverband",
+        "Kreis",
+        "Kleinstadt",
+        "Mittelstadt",
+        "Großstadt",       
+    ],
+    "Zentralörtliche Einstufung": [
+        "Kommunalverband / Gemeindeverband",
+        "Kreis",
+        "keine zentralörtliche Einstufung",
+        "Unterzentrum",
+        "Mittelzentrum",
+        "Oberzentrum",
+   ],
+    "Vorerfahrung": [
+        "Beginner",
+        "First Stepper",
+        "Performer",
+        "Professionals",
+    ],
+}
+
+tab_content_config = {
+    "Inhaltliche Auswertungen": [
         ("Angebot", "Angebot"),
         ("Gemeindegrößenklasse", "Gemeindegrößenklassen"),
         ("Zentralörtliche Einstufung", "Zentralörtliche Einstufung"),
+    ],
+    "Organisatorisches & Status": [
         ("Beschluss NKNRW", "Beschluss NKNRW"),
         ("Einstiegszeitpunkt", "Einstiegszeitpunkt"),
         ("Vorerfahrung", "Vorerfahrung"),
-    ]
+    ],
+}
 
-    row1_cols = st.columns(3)
-    row2_cols = st.columns(3)
-    all_chart_slots = list(row1_cols) + list(row2_cols)
+tabs = st.tabs(list(tab_content_config.keys()))
 
-    for idx, (col_name, title) in enumerate(chart_columns_config):
-        if idx < len(all_chart_slots) and col_name in df.columns:
-            with all_chart_slots[idx]:
-                st.markdown(f"<div style='font-size: 14px; font-weight: 600; text-align: center; margin-bottom: 5px;'>{title}</div>", unsafe_allow_html=True)
-                
-                series_split = (
-                    df[col_name]
-                    .dropna()
-                    .astype(str)
-                    .str.split(";")
-                    .explode()
-                    .str.strip()
-                )
-                series_split = series_split[series_split != ""]
+for tab_idx, (tab_name, configs) in enumerate(tab_content_config.items()):
+    with tabs[tab_idx]:
+        cols = st.columns(3)
+        for idx, (col_name, title) in enumerate(configs):
+            if col_name in df.columns:
+                with cols[idx]:
+                    st.markdown(f"<div style='font-size: 14px; font-weight: 600; text-align: center; margin-bottom: 5px;'>{title}</div>", unsafe_allow_html=True)
+                    
+                    series_split = (
+                        df[col_name]
+                        .dropna()
+                        .astype(str)
+                        .str.split(";")
+                        .explode()
+                        .str.strip()
+                    )
+                    series_split = series_split[series_split != ""]
 
-                if not series_split.empty:
-                    counts = series_split.value_counts().reset_index()
-                    counts.columns = [col_name, "Anzahl"]
+                    if not series_split.empty:
+                        counts = series_split.value_counts().reset_index()
+                        counts.columns = [col_name, "Anzahl"]
 
-                    if col_name in sorting_orders:
-                        custom_order = sorting_orders[col_name]
-                        counts[col_name] = pd.Categorical(counts[col_name], categories=custom_order, ordered=True)
-                        counts = counts.sort_values(by=col_name, ascending=False).dropna(subset=[col_name])
+                        if col_name in sorting_orders:
+                            custom_order = sorting_orders[col_name]
+                            counts[col_name] = pd.Categorical(counts[col_name], categories=custom_order, ordered=True)
+                            counts = counts.sort_values(by=col_name, ascending=False).dropna(subset=[col_name])
+                        else:
+                            counts = counts.sort_values(by="Anzahl", ascending=True)
+
+                        fig = px.bar(
+                            counts,
+                            x="Anzahl",
+                            y=col_name,
+                            orientation="h",
+                            text="Anzahl",
+                            color=col_name,
+                            color_discrete_sequence=px.colors.qualitative.Bold,
+                        )
+                        fig.update_traces(textposition="outside")
+                        fig.update_layout(
+                            showlegend=False,
+                            height=320,
+                            margin=dict(l=0, r=30, t=5, b=5),
+                            xaxis_title="",
+                            yaxis_title="",
+                            xaxis=dict(showticklabels=False, showgrid=False),
+                            yaxis=dict(tickfont=dict(size=11)),
+                        )
+                        st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
                     else:
-                        counts = counts.sort_values(by="Anzahl", ascending=True)
-
-                    fig = px.bar(
-                        counts,
-                        x="Anzahl",
-                        y=col_name,
-                        orientation="h",
-                        text="Anzahl",
-                        color=col_name,
-                        color_discrete_sequence=px.colors.qualitative.Bold,
-                    )
-                    fig.update_traces(textposition="outside")
-                    fig.update_layout(
-                        showlegend=False,
-                        height=300,
-                        margin=dict(l=0, r=30, t=5, b=5),
-                        xaxis_title="",
-                        yaxis_title="",
-                        xaxis=dict(showticklabels=False, showgrid=False),
-                        yaxis=dict(tickfont=dict(size=11)),
-                    )
-                    st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
-                else:
-                    st.info("Keine Daten")
+                        st.info("Keine Daten")
