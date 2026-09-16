@@ -672,7 +672,7 @@ if clicked_feature:
                 st.markdown("<span style='font-size: 12px;'>-</span>", unsafe_allow_html=True)
 
 # ==============================================================================
-# 9. Diagramme in Tabs unterteilt unterhalb der Karte
+# 9. Diagramme in Tabs unterteilt unterhalb der Karte (mit sauberer Splitting-Logik)
 # ==============================================================================
 st.markdown("---")
 st.subheader("📊 Auswertungen im Überblick")
@@ -720,21 +720,32 @@ for tab_idx, (tab_name, configs) in enumerate(tab_content_config.items()):
     with tabs[tab_idx]:
         cols = st.columns(3)
         for idx, (col_name, title) in enumerate(configs):
-            if col_name in df.columns:
+            if idx < len(cols):
                 with cols[idx]:
                     st.markdown(f"<div style='font-size: 14px; font-weight: 600; text-align: center; margin-bottom: 5px;'>{title}</div>", unsafe_allow_html=True)
                     
-                    series_split = (
-                        df[col_name]
-                        .dropna()
-                        .astype(str)
-                        .str.split(";")
-                        .explode()
-                        .str.strip()
-                    )
-                    series_split = series_split[series_split != ""]
+                    # Korrekte Aufteilung über die aufbereiteten Daten in data_by_match_key (nutzt Info_Angebot und Info_Einstieg)
+                    target_field_map = {
+                        "Angebot": "Info_Angebot",
+                        "Einstiegszeitpunkt": "Info_Einstieg",
+                    }
+                    lookup_key = target_field_map.get(col_name, col_name)
+                    
+                    extracted_values = []
+                    for item in data_by_match_key.values():
+                        if lookup_key in ("Info_Angebot", "Info_Einstieg"):
+                            val_str = item.get(lookup_key, "-")
+                            if val_str and val_str != "-":
+                                parts = [p.strip() for p in val_str.replace("/", "|").split("|") if p.strip() and p.strip() != "-"]
+                                extracted_values.extend(parts)
+                        else:
+                            val_str = item.get(col_name, "-")
+                            if val_str and val_str != "-":
+                                parts = [p.strip() for p in val_str.split(";") if p.strip() and p.strip() != "-"]
+                                extracted_values.extend(parts)
 
-                    if not series_split.empty:
+                    if extracted_values:
+                        series_split = pd.Series(extracted_values)
                         counts = series_split.value_counts().reset_index()
                         counts.columns = [col_name, "Anzahl"]
 
