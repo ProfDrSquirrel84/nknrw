@@ -78,12 +78,12 @@ def load_data():
     if partei_col and partei_col != "Partei":
         df["Partei"] = df[partei_col]
 
-    # Reine Ziffernfolge in Integer umwandeln für metrische Berechnungen und Diagramme
     def parse_pop(val):
         digits = "".join(filter(str.isdigit, str(val)))
         return int(digits) if digits else None
 
-    df["Bevoelkerung_Num"] = df["Bevoelkerung"].apply(parse_pop)
+    if "Bevoelkerung" in df.columns:
+        df["Bevoelkerung_Num"] = df["Bevoelkerung"].apply(parse_pop)
 
     return df
 
@@ -210,7 +210,7 @@ def highlight_fn(feature):
     }
 
 
-# Folium-Karte (OpenStreetMap)
+# Folium-Karte (OpenStreetMap ohne API-Key)
 m = folium.Map(location=center_loc, zoom_start=zoom_lvl, tiles="OpenStreetMap")
 
 tooltip_style = """
@@ -261,8 +261,8 @@ folium.GeoJson(
     tooltip=tooltip,
 ).add_to(m)
 
-# 2-Spalten-Layout: 70% Karte, 30% Kennzahlen & Bevölkerungsdiagramm
-col_map, col_side = st.columns([7, 3])
+# Layout: 65% Karte, 35% Dashboard & Diagramm
+col_map, col_side = st.columns([65, 35])
 
 with col_map:
     map_output = st_folium(
@@ -275,14 +275,14 @@ with col_map:
 with col_side:
     st.subheader("Übersicht")
     st.markdown(
-        '<div style="display:flex; align-items:center; margin-bottom:8px;">'
-        '<div style="background-color:#00689D; width:16px; height:16px; border-radius:3px; margin-right:8px; flex-shrink:0;"></div>'
+        '<div style="display:flex; align-items:center; margin-bottom:6px;">'
+        '<div style="background-color:#00689D; width:15px; height:15px; border-radius:3px; margin-right:8px; flex-shrink:0;"></div>'
         '<span style="font-size:13px; line-height:1.2;"><b>Erfasste Kommune</b></span></div>',
         unsafe_allow_html=True,
     )
     st.markdown(
-        '<div style="display:flex; align-items:center; margin-bottom:12px;">'
-        '<div style="background-color:#CBD5E1; border:1px solid #94A3B8; width:16px; height:16px; border-radius:3px; margin-right:8px; flex-shrink:0;"></div>'
+        '<div style="display:flex; align-items:center; margin-bottom:10px;">'
+        '<div style="background-color:#CBD5E1; border:1px solid #94A3B8; width:15px; height:15px; border-radius:3px; margin-right:8px; flex-shrink:0;"></div>'
         '<span style="font-size:13px; color:#475569; line-height:1.2;">Nicht erfasst</span></div>',
         unsafe_allow_html=True,
     )
@@ -291,41 +291,88 @@ with col_side:
     kpi1.metric("Kommunen", len(df["Kommune"].unique()))
     kpi2.metric("Anträge", len(df))
 
-    total_pop = df["Bevoelkerung_Num"].sum()
-    if pd.notnull(total_pop) and total_pop > 0:
-        st.metric("Erfasste Einwohner", f"{int(total_pop):,}".replace(",", "."))
+    if "Bevoelkerung_Num" in df.columns:
+        total_pop = df["Bevoelkerung_Num"].sum()
+        if pd.notnull(total_pop) and total_pop > 0:
+            st.metric("Erfasste Einwohner", f"{int(total_pop):,}".replace(",", "."))
 
     st.markdown("---")
-    st.markdown("##### 👥 Bevölkerung der Kommunen")
 
-    # Diagramm mit den echten Bevölkerungszahlen
-    df_pop = df.dropna(subset=["Bevoelkerung_Num"]).copy()
-    df_pop = df_pop.sort_values(by="Bevoelkerung_Num", ascending=True)
+    # Auswahlfeld: Welche Tabellenspalte soll im Diagramm visualisiert werden?
+    exclude_from_chart = ["AGS", "ARS", "Bevoelkerung_Num"]
+    chart_candidates = [c for c in df.columns if c not in exclude_from_chart]
 
-    if not df_pop.empty:
-        fig_pop = px.bar(
-            df_pop,
-            x="Bevoelkerung_Num",
-            y="Kommune",
-            orientation="h",
-            text="Bevoelkerung_Num",
-            color_discrete_sequence=["#00689D"],
-        )
-        # Tausendertrennung direkt an den Balken
-        fig_pop.update_traces(
-            texttemplate="%{text:,.0f}",
-            textposition="outside",
-            cliponaxis=False,
-        )
-        fig_pop.update_layout(
-            height=max(420, len(df_pop) * 20),
-            margin=dict(l=0, r=45, t=10, b=10),
-            xaxis_title="",
-            yaxis_title="",
-            xaxis=dict(showticklabels=False, showgrid=False),
-            yaxis=dict(tickfont=dict(size=11)),
-        )
-        st.plotly_chart(fig_pop, use_container_width=True)
+    # Vorauswahl bevorzugt auf Bevölkerung oder Regierungsbezirk setzen
+    default_idx = 0
+    if "Bevoelkerung" in chart_candidates:
+        default_idx = chart_candidates.index("Bevoelkerung")
+    elif "Regierungsbezirk" in chart_candidates:
+        default_idx = chart_candidates.index("Regierungsbezirk")
+
+    selected_chart_col = st.selectbox(
+        "📊 Diagramm-Inhalt auswählen:",
+        options=chart_candidates,
+        index=default_idx,
+    )
+
+    # 1. Fall: Bevölkerung (metrische Auswertung je Kommune)
+    if any(x in selected_chart_col.upper() for x in ["BEVÖLKERUNG", "BEVOELKERUNG", "EINWOHNER"]):
+        df_chart = df.dropna(subset=["Bevoelkerung_Num"]).sort_values("Bevoelkerung_Num", ascending=True)
+        if not df_chart.empty:
+            fig = px.bar(
+                df_chart,
+                x="Bevoelkerung_Num",
+                y="Kommune",
+                orientation="h",
+                text="Bevoelkerung_Num",
+                color_discrete_sequence=["#00689D"],
+            )
+            fig.update_traces(
+                texttemplate="%{text:,.0f}",
+                textposition="outside",
+                cliponaxis=False,
+            )
+            fig.update_layout(
+                height=max(400, len(df_chart) * 20),
+                margin=dict(l=0, r=45, t=10, b=10),
+                xaxis_title="",
+                yaxis_title="",
+                xaxis=dict(showticklabels=False, showgrid=False),
+                yaxis=dict(tickfont=dict(size=11)),
+            )
+            st.plotly_chart(fig, use_container_width=True)
+
+    # 2. Fall: Kategoriale Variable (Häufigkeitsverteilung)
+    else:
+        df_sub = df.dropna(subset=[selected_chart_col]).copy()
+        if not df_sub.empty:
+            counts = (
+                df_sub[selected_chart_col]
+                .value_counts()
+                .reset_index()
+            )
+            counts.columns = [selected_chart_col, "Anzahl"]
+            counts = counts.sort_values(by="Anzahl", ascending=True)
+
+            fig = px.bar(
+                counts,
+                x="Anzahl",
+                y=selected_chart_col,
+                orientation="h",
+                text="Anzahl",
+                color_discrete_sequence=["#00689D"],
+            )
+            fig.update_traces(textposition="outside")
+            fig.update_layout(
+                height=max(320, len(counts) * 32),
+                margin=dict(l=0, r=30, t=10, b=10),
+                xaxis_title="Fallzahl",
+                yaxis_title="",
+                yaxis=dict(tickfont=dict(size=11)),
+            )
+            st.plotly_chart(fig, use_container_width=True)
+        else:
+            st.info("Keine Daten für dieses Merkmal vorhanden.")
 
 # Factsheet bei Klick auf ein Polygon
 clicked_feature = map_output.get("last_active_drawing") if map_output else None
