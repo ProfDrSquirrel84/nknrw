@@ -12,9 +12,11 @@ st.set_page_config(page_title="NRW Kommunen-Monitoring", layout="wide")
 BASE_DIR = Path(__file__).resolve().parent
 DATA_PATH = BASE_DIR / "daten.csv"
 GEOJSON_GEMEINDEN = BASE_DIR / "nrw_gemeinden.geojson"
+GEOJSON_KREISE = BASE_DIR / "nrw_kreise.geojson"
 GEOJSON_GEMEINDEN_BG = BASE_DIR / "nrw_gemeinden_bg.geojson"
 GEOJSON_LV = BASE_DIR / "landschaftsverband_rheinland.geojson"
 
+GITHUB_KREISE_RAW_URL = "https://raw.githubusercontent.com/<DEIN_GITHUB_USER>/<DEIN_REPO>/main/nrw_kreise.geojson"
 GITHUB_GEMEINDEN_BG_RAW_URL = "https://raw.githubusercontent.com/<DEIN_GITHUB_USER>/<DEIN_REPO>/main/nrw_gemeinden_bg.geojson"
 GITHUB_LV_RAW_URL = "https://raw.githubusercontent.com/<DEIN_GITHUB_USER>/<DEIN_REPO>/main/landschaftsverband_rheinland.geojson"
 
@@ -267,6 +269,18 @@ def load_base_geojsons():
     with open(GEOJSON_GEMEINDEN, "r", encoding="utf-8") as f:
         gemeinden_data = json.load(f)
 
+    kreise_data = None
+    if GEOJSON_KREISE.is_file():
+        with open(GEOJSON_KREISE, "r", encoding="utf-8") as f:
+            kreise_data = json.load(f)
+    elif "<DEIN_GITHUB_USER>" not in GITHUB_KREISE_RAW_URL:
+        try:
+            resp = requests.get(GITHUB_KREISE_RAW_URL, timeout=10)
+            if resp.status_code == 200:
+                kreise_data = resp.json()
+        except Exception:
+            kreise_data = None
+
     gemeinden_bg_data = None
     if GEOJSON_GEMEINDEN_BG.is_file():
         with open(GEOJSON_GEMEINDEN_BG, "r", encoding="utf-8") as f:
@@ -291,10 +305,10 @@ def load_base_geojsons():
         except Exception:
             lv_data = None
 
-    return gemeinden_data, gemeinden_bg_data, lv_data
+    return gemeinden_data, kreise_data, gemeinden_bg_data, lv_data
 
 
-base_gemeinden, base_gemeinden_bg, base_lv = load_base_geojsons()
+base_gemeinden, base_kreise, base_gemeinden_bg, base_lv = load_base_geojsons()
 
 
 def filter_features(geojson_dict, allowed_keys):
@@ -313,7 +327,8 @@ def filter_features(geojson_dict, allowed_keys):
 
 
 geojson_data = filter_features(base_gemeinden, recorded_keys_set)
-geojson_gemeinden_bg = base_gemeinden_bg  # Ungefilterter Komplettbestand für den Hintergrund
+geojson_kreise = filter_features(base_kreise, recorded_keys_set) if base_kreise else None
+geojson_gemeinden_bg = base_gemeinden_bg
 geojson_lv = filter_features(base_lv, recorded_keys_set) if base_lv else None
 
 # ==============================================================================
@@ -361,6 +376,8 @@ def enrich_features(features, layer_type="gemeinde"):
 
 if geojson_data:
     enrich_features(geojson_data["features"], layer_type="gemeinde")
+if geojson_kreise:
+    enrich_features(geojson_kreise["features"], layer_type="kreis")
 if geojson_lv and geojson_lv.get("features"):
     enrich_features(geojson_lv["features"], layer_type="lv")
 
@@ -387,7 +404,7 @@ if search_kommune != "(Übersicht)":
     )
     if target_entry:
         target_key = str(target_entry["Row_Data"].get("AGS_MATCH", "")).strip()
-        all_features = (base_gemeinden.get("features", []) if base_gemeinden else []) + (geojson_data["features"] if geojson_data else []) + (geojson_lv["features"] if geojson_lv and geojson_lv.get("features") else [])
+        all_features = (base_kreise.get("features", []) if base_kreise else []) + (geojson_data["features"] if geojson_data else []) + (geojson_lv["features"] if geojson_lv and geojson_lv.get("features") else [])
         for feat in all_features:
             if feat.get("properties", {}).get("MATCH_KEY") == target_key:
                 geom = feat.get("geometry", {})
@@ -406,8 +423,8 @@ if search_kommune != "(Übersicht)":
 def style_fn_gemeinden_bg(feature):
     return {
         "fillColor": "transparent",
-        "color": "#000000",      # Sehr dezentes Grau für die Hintergrund-Gemeindegrenzen
-        "weight": 0.8,           # Feine Linienstärke
+        "color": "#000000",
+        "weight": 0.5,
         "fillOpacity": 0.0,
     }
 
@@ -427,6 +444,36 @@ def highlight_fn_lv(feature):
         "weight": 2.5,
         "dashArray": "4, 4",
         "fillOpacity": 0.45,
+    }
+
+def style_fn_kreise(feature):
+    props = feature.get("properties", {})
+    key = props.get("MATCH_KEY")
+    target_info = data_by_match_key.get(key)
+    is_highlighted = (
+        search_kommune != "(Übersicht)"
+        and target_info
+        and target_info.get("Kommune") == search_kommune
+    )
+    weight = 2.5
+    if is_highlighted:
+        weight = 3.5
+
+    return {
+        "fillColor": "#00689D",
+        "color": "#FFD700" if is_highlighted else "#475569",
+        "weight": weight,
+        "dashArray": "4, 4",
+        "fillOpacity": 0.40,
+    }
+
+def highlight_fn_kreise(feature):
+    return {
+        "fillColor": "#26BDE2",
+        "color": "#0F2942",
+        "weight": 3.0,
+        "dashArray": "4, 4",
+        "fillOpacity": 0.60,
     }
 
 def style_fn_gemeinden(feature):
@@ -507,13 +554,13 @@ def create_tooltip():
         sticky=False,
     )
 
-# 1. ALLERERSTER LAYER: Statische Gemeindegrenzen im Hintergrund (komplett ohne Interaktion)
+# 1. ALLERERSTER LAYER: Statische Gemeindegrenzen im Hintergrund (ohne Interaktion)
 if geojson_gemeinden_bg and geojson_gemeinden_bg.get("features"):
     folium.GeoJson(
         geojson_gemeinden_bg,
         name="Gemeindegrenzen (Hintergrund)",
         style_function=style_fn_gemeinden_bg,
-        interactive=False,  # Deaktiviert jegliche Klicks, Hover-Effekte und Tooltips
+        interactive=False,
     ).add_to(m)
 
 # 2. ZWEITER LAYER: Landschaftsverband
@@ -526,7 +573,17 @@ if geojson_lv and geojson_lv.get("features"):
         tooltip=create_tooltip(),
     ).add_to(m)
 
-# 3. DRITTER LAYER: Aktive Gemeinden (Oberster Layer)
+# 3. DRITTER LAYER: Aktive Landkreise aus der Datentabelle
+if geojson_kreise and geojson_kreise["features"]:
+    folium.GeoJson(
+        geojson_kreise,
+        name="Landkreise",
+        style_function=style_fn_kreise,
+        highlight_function=highlight_fn_kreise,
+        tooltip=create_tooltip(),
+    ).add_to(m)
+
+# 4. VIERTER LAYER: Aktive Gemeinden (Oberster Layer)
 if geojson_data and geojson_data["features"]:
     folium.GeoJson(
         geojson_data,
