@@ -34,15 +34,15 @@ st.markdown("""
     }
     .floating-overlay-top-right {
         position: absolute;
-        top: 25px;
-        right: 25px;
+        top: 20px;
+        right: 20px;
         z-index: 99999;
         background: rgba(255, 255, 255, 0.95);
         padding: 12px 16px;
         border-radius: 8px;
         box-shadow: 0 4px 15px rgba(0,0,0,0.2);
         border: 1px solid #cbd5e1;
-        width: 300px;
+        width: 270px;
         pointer-events: auto;
     }
     </style>
@@ -588,49 +588,94 @@ if geojson_data and geojson_data["features"]:
     ).add_to(m)
 
 # ==============================================================================
-# 8. Vollflächige Karte mit schwebender Live-Übersicht (oben rechts IN der Karte)
+# 8. Layout: Karte links, Diagramm rechts nebeneinander
 # ==============================================================================
 st.title("🗺️ NRW-Kommunen: Übersicht & Beteiligung")
 
-st.markdown('<div class="map-container">', unsafe_allow_html=True)
+col_map, col_chart = st.columns([68, 32])
 
-active_filters = []
-if selected_units:
-    active_filters.append(f"{len(selected_units)} Kommunen")
-if selected_offers:
-    active_filters.append(f"{len(selected_offers)} Angebote")
-filter_label = f"Aktiv: {', '.join(active_filters)}" if active_filters else "(Alle Einheiten)"
+with col_map:
+    st.markdown('<div class="map-container">', unsafe_allow_html=True)
+    
+    # Overlay Oben Rechts (Live-Übersicht in der Karte)
+    active_filters = []
+    if selected_units:
+        active_filters.append(f"{len(selected_units)} Kommunen")
+    if selected_offers:
+        active_filters.append(f"{len(selected_offers)} Angebote")
+    filter_label = f"Aktiv: {', '.join(active_filters)}" if active_filters else "(Alle Einheiten)"
 
-unique_pop = (
-    df.drop_duplicates(subset=["AGS_MATCH"])["Bevoelkerung_Num"].dropna().sum()
-)
-pop_str = f"{int(unique_pop):,}".replace(",", ".") if unique_pop > 0 else "-"
+    unique_pop = (
+        df.drop_duplicates(subset=["AGS_MATCH"])["Bevoelkerung_Num"].dropna().sum()
+    )
+    pop_str = f"{int(unique_pop):,}".replace(",", ".") if unique_pop > 0 else "-"
 
-st.markdown(f"""
-    <div class="floating-overlay-top-right">
-        <b style="font-size:13px; color:#0F2942;">📊 Live-Übersicht</b><br>
-        <span style="font-size:10px; color:#64748B;">{filter_label}</span>
-        <hr style="margin: 4px 0; border-color:#cbd5e1;">
-        <div style="display:flex; justify-content:space-between; font-size:12px;">
-            <span>Bewerber: <b>{len(data_by_match_key)}</b></span>
-            <span>Anträge: <b>{total_applications_count}</b></span>
+    st.markdown(f"""
+        <div class="floating-overlay-top-right">
+            <b style="font-size:12px; color:#0F2942;">📊 Live-Übersicht</b><br>
+            <span style="font-size:10px; color:#64748B;">{filter_label}</span>
+            <hr style="margin: 4px 0; border-color:#cbd5e1;">
+            <div style="display:flex; justify-content:space-between; font-size:11px;">
+                <span>Bewerber: <b>{len(data_by_match_key)}</b></span>
+                <span>Anträge: <b>{total_applications_count}</b></span>
+            </div>
+            <div style="font-size:11px; margin-top:3px;">
+                Erfasste Einwohner: <b>{pop_str}</b>
+            </div>
         </div>
-        <div style="font-size:12px; margin-top:3px;">
-            Erfasste Einwohner: <b>{pop_str}</b>
-        </div>
-    </div>
-""", unsafe_allow_html=True)
+    """, unsafe_allow_html=True)
 
-map_output = st_folium(
-    m,
-    width="100%",
-    height=820,
-    returned_objects=["last_active_drawing"],
-)
-st.markdown('</div>', unsafe_allow_html=True)
+    map_output = st_folium(
+        m,
+        width="100%",
+        height=750,
+        returned_objects=["last_active_drawing"],
+    )
+    st.markdown('</div>', unsafe_allow_html=True)
+
+with col_chart:
+    st.subheader(f"📊 Verteilung")
+    st.caption(f"Variable: **{selected_chart_col}**")
+
+    series_split = (
+        df[selected_chart_col]
+        .dropna()
+        .astype(str)
+        .str.split(";")
+        .explode()
+        .str.strip()
+    )
+    series_split = series_split[series_split != ""]
+
+    if not series_split.empty:
+        counts = series_split.value_counts().reset_index()
+        counts.columns = [selected_chart_col, "Anzahl"]
+        counts = counts.sort_values(by="Anzahl", ascending=True)
+
+        fig = px.bar(
+            counts,
+            x="Anzahl",
+            y=selected_chart_col,
+            orientation="h",
+            text="Anzahl",
+            color=selected_chart_col,
+            color_discrete_map=color_map,
+        )
+        fig.update_traces(textposition="outside")
+        fig.update_layout(
+            showlegend=False,
+            height=690,
+            margin=dict(l=0, r=10, t=10, b=10),
+            xaxis_title="Fallzahl / Nennungen",
+            yaxis_title="",
+            yaxis=dict(tickfont=dict(size=11)),
+        )
+        st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
+    else:
+        st.info("Keine Daten für die gewählte Kombination vorhanden.")
 
 # ==============================================================================
-# 9. Factsheet bei Klick auf ein Polygon (unter der Karte)
+# 9. Factsheet bei Klick auf ein Polygon (unterhalb von Karte & Diagramm)
 # ==============================================================================
 clicked_feature = map_output.get("last_active_drawing") if map_output else None
 if clicked_feature:
@@ -664,46 +709,3 @@ if clicked_feature:
                     )
             else:
                 st.markdown("<span style='font-size: 12px;'>-</span>", unsafe_allow_html=True)
-
-# ==============================================================================
-# 10. Diagramm unterhalb der Karte
-# ==============================================================================
-st.markdown("---")
-st.subheader(f"📊 Verteilung: {selected_chart_col}")
-
-series_split = (
-    df[selected_chart_col]
-    .dropna()
-    .astype(str)
-    .str.split(";")
-    .explode()
-    .str.strip()
-)
-series_split = series_split[series_split != ""]
-
-if not series_split.empty:
-    counts = series_split.value_counts().reset_index()
-    counts.columns = [selected_chart_col, "Anzahl"]
-    counts = counts.sort_values(by="Anzahl", ascending=True)
-
-    fig = px.bar(
-        counts,
-        x="Anzahl",
-        y=selected_chart_col,
-        orientation="h",
-        text="Anzahl",
-        color=selected_chart_col,
-        color_discrete_map=color_map,
-    )
-    fig.update_traces(textposition="outside")
-    fig.update_layout(
-        showlegend=False,
-        height=max(280, len(counts) * 32),
-        margin=dict(l=0, r=20, t=10, b=10),
-        xaxis_title="Fallzahl / Nennungen",
-        yaxis_title="",
-        yaxis=dict(tickfont=dict(size=11)),
-    )
-    st.plotly_chart(fig, use_container_width=True)
-else:
-    st.info("Keine Daten für die gewählte Kombination vorhanden.")
