@@ -314,7 +314,7 @@ def filter_features(geojson_dict, allowed_keys):
 
 geojson_data = filter_features(base_gemeinden, recorded_keys_set)
 geojson_kreise = filter_features(base_kreise, recorded_keys_set) if base_kreise else None
-geojson_lv = base_lv  # Landschaftsverband wird als Ganzes angezeigt
+geojson_lv = base_lv
 
 # ==============================================================================
 # 5. Variablenauswahl für Diagramm & synchrone Farbgebung
@@ -341,7 +341,7 @@ selected_chart_col = st.sidebar.selectbox(
         chart_candidates.index("Angebot") if "Angebot" in chart_candidates else 0
     ),
     key="sb_selected_variable",
-]
+)
 
 PALETTE = [
     "#00689D",
