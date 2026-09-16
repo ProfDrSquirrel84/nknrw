@@ -100,7 +100,7 @@ geojson_data = load_geojson()
 st.title("🗺️ NRW-Kommunen: Übersicht & Beteiligung")
 
 # ==============================================================================
-# 1. Flexible Paarung: Angebote vs. (alternative) Einstiegszeitpunkte
+# 1. Flexible Paarung: Angebote vs. Einstiegszeitpunkte
 # ==============================================================================
 data_by_ags = {}
 total_applications_count = 0
@@ -116,7 +116,7 @@ for _, row in df.iterrows():
 
     paired_offers = []
 
-    # Fall A: 1 Angebot mit mehreren alternativen Startterminen (z. B. "2026-10 oder 2027-01")
+    # Fall A: 1 Angebot mit mehreren alternativen Terminen
     if len(ang_list) == 1 and len(start_list) > 1:
         alt_starts = " oder ".join(start_list)
         paired_offers.append({
@@ -155,16 +155,76 @@ for _, row in df.iterrows():
         "Bevoelkerung_Num": row.get("Bevoelkerung_Num"),
         "BBSR_Einordnung": row.get("BBSR_Einordnung", "-"),
         "Status_Beschluss": row.get("Status_Beschluss", "-"),
+        "Vorerkrankung": row.get("Vorerfahrung", "-"),
+        "Angebot_Raw": row.get("Angebot", "-"),
+        "Einstiegszeitpunkt_Raw": row.get("Einstiegszeitpunkt", "-"),
         # Kompakte Tooltip-Vorschau
         "Info_Angebot": " | ".join(ang_list) if ang_list else "-",
         "Info_Einstieg": " / ".join(start_list) if start_list else "-",
         "Angebote_Paare": paired_offers,
         "Anzahl_Projekte": len(paired_offers) if paired_offers else 1,
+        "Row_Data": row.to_dict(),
     }
 
 recorded_ags_set = set(data_by_ags.keys())
 
-# GeoJSON-Properties anreichern
+# ==============================================================================
+# 2. Steuerung: Variable für Diagramm & synchrone Kartenfärbung
+# ==============================================================================
+chart_candidates = [
+    c
+    for c in df.columns
+    if c not in ["AGS", "ARS", "Bevoelkerung_Num"]
+]
+
+# Auswahl in der Sidebar platzieren
+selected_chart_col = st.sidebar.selectbox(
+    "📊 Variable für Diagramm & Kartenfärbung:",
+    options=chart_candidates,
+    index=chart_candidates.index("Angebot") if "Angebot" in chart_candidates else 0,
+)
+
+# Palette für kategoriale Ausprägungen
+PALETTE = [
+    "#00689D",  # Blau
+    "#4C9F38",  # Grün
+    "#FD9D24",  # Orange
+    "#DD1367",  # Magenta / Rotpink
+    "#26BDE2",  # Cyan
+    "#FCC30B",  # Gelb
+    "#A21942",  # Weinrot
+    "#FD6925",  # Dunkelorange
+    "#3F7E44",  # Waldgrün
+    "#8B5CF6",  # Violett
+    "#06B6D4",  # Türkis
+    "#64748B",  # Schiefergrau
+]
+
+is_pop_selected = any(
+    x in selected_chart_col.upper()
+    for x in ["BEVÖLKERUNG", "BEVOELKERUNG", "EINWOHNER"]
+)
+
+# Farb-Mapping für kategoriale Werte erstellen
+color_map = {}
+if not is_pop_selected:
+    # Alle vorkommenden Werte ermitteln (auch gesplittete bei Semikolons)
+    all_vals = (
+        df[selected_chart_col]
+        .dropna()
+        .astype(str)
+        .str.split(";")
+        .explode()
+        .str.strip()
+    )
+    unique_categories = sorted([v for v in all_vals.unique() if v and v != "nan"])
+    color_map = {
+        val: PALETTE[i % len(PALETTE)] for i, val in enumerate(unique_categories)
+    }
+
+# ==============================================================================
+# 3. GeoJSON-Properties anreichern
+# ==============================================================================
 for feat in geojson_data["features"]:
     props = feat["properties"]
     ags = str(props.get("AGS", "")).strip().zfill(8)
@@ -186,6 +246,11 @@ for feat in geojson_data["features"]:
 
         anz_proj = info["Anzahl_Projekte"]
         props["Im_Projekt"] = f"Ja ({anz_proj} Modul{'e' if anz_proj > 1 else ''})"
+
+        # Aktiven Variablenwert für das Styling hinterlegen
+        raw_val = str(info["Row_Data"].get(selected_chart_col, "-")).strip()
+        first_val = [x.strip() for x in raw_val.split(";") if x.strip()][0] if ";" in raw_val else raw_val
+        props["Selected_Category"] = first_val
     else:
         props["Info_Status"] = "Nicht erfasst"
         props["Info_Angebot"] = "-"
@@ -195,10 +260,9 @@ for feat in geojson_data["features"]:
         props["Info_Partei"] = "-"
         props["Info_Bevoelkerung"] = "-"
         props["Im_Projekt"] = "Nein"
+        props["Selected_Category"] = None
 
-# ==============================================================================
-# 2. Such- und Zentrierfunktion
-# ==============================================================================
+# Such- und Zentrierfunktion
 kommune_list = sorted(list({v["Kommune"] for v in data_by_ags.values() if v["Kommune"]}))
 search_kommune = st.sidebar.selectbox(
     "🔍 Kommune suchen & zentrieren:",
@@ -239,8 +303,15 @@ def style_fn(feature):
             search_kommune != "(NRW Übersicht)"
             and data_by_ags[ags].get("Kommune") == search_kommune
         )
+
+        if is_pop_selected:
+            fill = "#00689D"
+        else:
+            cat = props.get("Selected_Category")
+            fill = color_map.get(cat, "#00689D")
+
         return {
-            "fillColor": "#00689D",
+            "fillColor": fill,
             "color": "#FFD700" if is_highlighted else "#0F2942",
             "weight": 3.0 if is_highlighted else 1.2,
             "fillOpacity": 0.85,
@@ -272,7 +343,7 @@ def highlight_fn(feature):
 
 
 # ==============================================================================
-# 3. Folium Karte
+# 4. Folium Karte
 # ==============================================================================
 m = folium.Map(location=center_loc, zoom_start=zoom_lvl, tiles="OpenStreetMap")
 
@@ -325,7 +396,7 @@ folium.GeoJson(
 ).add_to(m)
 
 # ==============================================================================
-# 4. Layout: Karte & Dashboard
+# 5. Layout: Karte & Dashboard
 # ==============================================================================
 col_map, col_side = st.columns([65, 35])
 
@@ -363,23 +434,10 @@ with col_side:
         st.metric("Erfasste Einwohner", f"{int(unique_pop):,}".replace(",", "."))
 
     st.markdown("---")
+    st.markdown(f"##### 📊 Verteilung: {selected_chart_col}")
 
-    chart_candidates = [
-        c
-        for c in df.columns
-        if c not in ["AGS", "ARS", "Bevoelkerung_Num"]
-    ]
-    selected_chart_col = st.selectbox(
-        "📊 Diagramm-Inhalt auswählen:",
-        options=chart_candidates,
-        index=chart_candidates.index("Angebot") if "Angebot" in chart_candidates else 0,
-    )
-
-    # A. Fall: Bevölkerung (eindeutige Kommunen)
-    if any(
-        x in selected_chart_col.upper()
-        for x in ["BEVÖLKERUNG", "BEVOELKERUNG", "EINWOHNER"]
-    ):
+    # A. Fall: Bevölkerung (metrisch sortiert)
+    if is_pop_selected:
         df_chart = (
             df.drop_duplicates(subset=["AGS"])
             .dropna(subset=["Bevoelkerung_Num"])
@@ -406,7 +464,7 @@ with col_side:
         )
         st.plotly_chart(fig, use_container_width=True)
 
-    # B. Fall: Kategoriale Variablen (Mehrfachnennungen aufdröseln)
+    # B. Fall: Kategoriale Variablen (Mehrfarbige Balken synchron zur Karte)
     else:
         series_split = (
             df[selected_chart_col]
@@ -428,11 +486,13 @@ with col_side:
             y=selected_chart_col,
             orientation="h",
             text="Anzahl",
-            color_discrete_sequence=["#00689D"],
+            color=selected_chart_col,
+            color_discrete_map=color_map,
         )
         fig.update_traces(textposition="outside")
         fig.update_layout(
-            height=max(320, len(counts) * 32),
+            showlegend=False,
+            height=max(320, len(counts) * 34),
             margin=dict(l=0, r=30, t=10, b=10),
             xaxis_title="Fallzahl / Nennungen",
             yaxis_title="",
@@ -441,7 +501,7 @@ with col_side:
         st.plotly_chart(fig, use_container_width=True)
 
 # ==============================================================================
-# 5. Factsheet bei Klick auf ein Polygon
+# 6. Factsheet bei Klick auf ein Polygon
 # ==============================================================================
 clicked_feature = map_output.get("last_active_drawing") if map_output else None
 if clicked_feature:
