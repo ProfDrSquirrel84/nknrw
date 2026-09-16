@@ -2,6 +2,7 @@ import json
 from pathlib import Path
 import folium
 import pandas as pd
+import plotly.express as px
 import streamlit as st
 from streamlit_folium import st_folium
 
@@ -58,7 +59,7 @@ def load_data():
         )
         df["Kommune"] = df[kom_col] if kom_col else df["AGS"]
 
-    # Spalten für Bevölkerung und Partei matchen
+    # Spalten für Bevölkerung und Partei flexibel zuordnen
     bev_col = next(
         (
             c
@@ -77,6 +78,26 @@ def load_data():
     if partei_col and partei_col != "Partei":
         df["Partei"] = df[partei_col]
 
+    # Numerische Bevölkerung für Auswertungen und Sortierungen erzeugen
+    def parse_pop(val):
+        digits = "".join(filter(str.isdigit, str(val)))
+        return int(digits) if digits else None
+
+    df["Bevoelkerung_Num"] = df["Bevoelkerung"].apply(parse_pop)
+
+    # Größenklassen definieren (orientiert an BBSR / Raumordnung)
+    bins = [0, 10000, 20000, 50000, 100000, float("inf")]
+    labels = [
+        "Landgemeinde (< 10 Tsd.)",
+        "Kleinstadt (10–20 Tsd.)",
+        "Größere Kleinstadt (20–50 Tsd.)",
+        "Mittelstadt (50–100 Tsd.)",
+        "Großstadt (> 100 Tsd.)",
+    ]
+    df["Groessenklasse"] = pd.cut(
+        df["Bevoelkerung_Num"], bins=bins, labels=labels, right=False
+    )
+
     return df
 
 
@@ -92,7 +113,7 @@ def load_geojson():
 df = load_data()
 geojson_data = load_geojson()
 
-st.title("NRW-Kommunen: Übersicht & Beteiligung")
+st.title("🗺️ NRW-Kommunen: Übersicht & Beteiligung")
 
 # Schneller Daten-Lookup per AGS
 data_by_ags = df.set_index("AGS").to_dict(orient="index")
@@ -112,12 +133,11 @@ for feat in geojson_data["features"]:
         props["Info_RB"] = row.get("Regierungsbezirk", "-")
         props["Info_Partei"] = row.get("Partei", "-")
 
-        raw_bev = str(row.get("Bevoelkerung", "-")).strip()
-        digits_bev = "".join(filter(str.isdigit, raw_bev))
-        if digits_bev:
-            props["Info_Bevoelkerung"] = f"{int(digits_bev):,}".replace(",", ".")
+        pop_num = row.get("Bevoelkerung_Num")
+        if pd.notnull(pop_num):
+            props["Info_Bevoelkerung"] = f"{int(pop_num):,}".replace(",", ".")
         else:
-            props["Info_Bevoelkerung"] = raw_bev if raw_bev != "" else "-"
+            props["Info_Bevoelkerung"] = row.get("Bevoelkerung", "-")
 
         props["Im_Projekt"] = "Ja"
     else:
@@ -206,7 +226,6 @@ def highlight_fn(feature):
 # Folium-Karte (OpenStreetMap)
 m = folium.Map(location=center_loc, zoom_start=zoom_lvl, tiles="OpenStreetMap")
 
-# Kompaktes Styling für den Tooltip (kleinere Schrift, reduziertes Padding)
 tooltip_style = """
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
     font-size: 11px;
@@ -255,7 +274,7 @@ folium.GeoJson(
     tooltip=tooltip,
 ).add_to(m)
 
-# Layout
+# Layout: Karte links, Übersicht & Schnell-Diagramm rechts
 col_map, col_side = st.columns([3, 1])
 
 with col_map:
@@ -271,7 +290,7 @@ with col_side:
     st.markdown(
         '<div style="display:flex; align-items:center; margin-bottom:10px;">'
         '<div style="background-color:#00689D; width:18px; height:18px; border-radius:3px; margin-right:8px; flex-shrink:0;"></div>'
-        '<span style="font-size:14px; line-height:1.2;"><b>Bewerber-Kommune</b></span></div>',
+        '<span style="font-size:14px; line-height:1.2;"><b>Erfasste Kommune</b></span></div>',
         unsafe_allow_html=True,
     )
     st.markdown(
@@ -283,9 +302,50 @@ with col_side:
     st.divider()
     st.metric("Erfasste Kommunen", len(df["Kommune"].unique()))
     st.metric("Gesamtzahl Anträge", len(df))
-    st.metric("Kommunen gesamt (NRW)", len(geojson_data.get("features", [])))
+    
+    # Gesamte erfasste Bevölkerung berechnen
+    total_pop = df["Bevoelkerung_Num"].sum()
+    if pd.notnull(total_pop) and total_pop > 0:
+        st.metric("Erfasste Bevölkerung", f"{int(total_pop):,}".replace(",", "."))
 
-# Factsheet bei Klick auf ein Polygon (hier ebenfalls kompakte Schriftgröße)
+    st.divider()
+    
+    # Kompaktes Balkendiagramm: Verteilung nach Gemeindegrößenklassen
+    st.markdown("**Kommunen nach Größenklassen**")
+    size_counts = (
+        df["Groessenklasse"]
+        .value_counts()
+        .reindex([
+            "Landgemeinde (< 10 Tsd.)",
+            "Kleinstadt (10–20 Tsd.)",
+            "Größere Kleinstadt (20–50 Tsd.)",
+            "Mittelstadt (50–100 Tsd.)",
+            "Großstadt (> 100 Tsd.)",
+        ])
+        .dropna()
+        .reset_index()
+    )
+    size_counts.columns = ["Klasse", "Anzahl"]
+
+    fig_side = px.bar(
+        size_counts,
+        x="Anzahl",
+        y="Klasse",
+        orientation="h",
+        text="Anzahl",
+        color_discrete_sequence=["#00689D"],
+    )
+    fig_side.update_layout(
+        margin=dict(l=0, r=10, t=10, b=10),
+        height=220,
+        xaxis_title="",
+        yaxis_title="",
+        yaxis=dict(autorange="reversed"),
+    )
+    fig_side.update_traces(textposition="outside")
+    st.plotly_chart(fig_side, use_container_width=True)
+
+# Factsheet bei Klick auf ein Polygon
 clicked_feature = map_output.get("last_active_drawing") if map_output else None
 if clicked_feature:
     clicked_props = clicked_feature.get("properties", {})
@@ -302,8 +362,35 @@ if clicked_feature:
             st.markdown(f"<span style='font-size: 13px;'><b>Bevölkerung:</b> {clicked_props.get('Info_Bevoelkerung', '-')}</span>", unsafe_allow_html=True)
             st.markdown(f"<span style='font-size: 13px;'><b>Partei:</b> {details.get('Partei', '-')}</span>", unsafe_allow_html=True)
         with c3:
-            st.markdown(f"<span style='font-size: 13px;'><b>BBSR-Einordnung:</b> {details.get('BBSR_Einordnung', '-')}</span>", unsafe_allow_html=True)
+            st.markdown(f"<span style='font-size: 13px;'><b>BBSR-Einordnung:</b> {details.get('BBSR_Einordnung', '-') or '-'}</span>", unsafe_allow_html=True)
             st.markdown(f"<span style='font-size: 13px;'><b>Beschlussstatus:</b> {details.get('Status_Beschluss', '-')}</span>", unsafe_allow_html=True)
         with c4:
             st.markdown(f"<span style='font-size: 13px;'><b>Projektangebot:</b> {details.get('Angebot', '-')}</span>", unsafe_allow_html=True)
             st.markdown(f"<span style='font-size: 13px;'><b>Einstieg:</b> {details.get('Einstiegszeitpunkt', '-') or '-'}</span>", unsafe_allow_html=True)
+
+# Ausklappbarer Bereich: Detaillierte Rangliste aller Kommunen nach Bevölkerung
+with st.expander("📊 Detailansicht: Bevölkerung aller beteiligten Kommunen im Vergleich", expanded=False):
+    df_chart = df.dropna(subset=["Bevoelkerung_Num"]).sort_values("Bevoelkerung_Num", ascending=True)
+
+    fig_detail = px.bar(
+        df_chart,
+        x="Bevoelkerung_Num",
+        y="Kommune",
+        orientation="h",
+        color="Regierungsbezirk" if "Regierungsbezirk" in df_chart.columns else None,
+        text="Bevoelkerung_Num",
+        title="Einwohnerzahl der erfassten Kommunen (sortiert)",
+        hover_data=["Typ", "Partei", "Angebot"],
+        color_discrete_sequence=px.colors.qualitative.Safe,
+    )
+    fig_detail.update_traces(
+        texttemplate="%{text:,.0f}",
+        textposition="outside",
+    )
+    fig_detail.update_layout(
+        height=max(500, len(df_chart) * 22),
+        xaxis_title="Bevölkerung (Einwohner)",
+        yaxis_title="",
+        margin=dict(l=10, r=40, t=50, b=30),
+    )
+    st.plotly_chart(fig_detail, use_container_width=True)
