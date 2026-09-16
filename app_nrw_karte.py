@@ -313,7 +313,8 @@ def filter_features(geojson_dict, allowed_keys):
 
 
 geojson_data = filter_features(base_gemeinden, recorded_keys_set)
-geojson_kreise = filter_features(base_kreise, recorded_keys_set) if base_kreise else None
+# Für die reinen Hintergrund-Kreise laden wir die Datei ungefiltert als Komplettbestand
+geojson_kreise_bg = base_kreise
 geojson_lv = filter_features(base_lv, recorded_keys_set) if base_lv else None
 
 # ==============================================================================
@@ -361,8 +362,6 @@ def enrich_features(features, layer_type="gemeinde"):
 
 if geojson_data:
     enrich_features(geojson_data["features"], layer_type="gemeinde")
-if geojson_kreise:
-    enrich_features(geojson_kreise["features"], layer_type="kreis")
 if geojson_lv and geojson_lv.get("features"):
     enrich_features(geojson_lv["features"], layer_type="lv")
 
@@ -389,7 +388,7 @@ if search_kommune != "(Übersicht)":
     )
     if target_entry:
         target_key = str(target_entry["Row_Data"].get("AGS_MATCH", "")).strip()
-        all_features = (geojson_kreise["features"] if geojson_kreise else []) + (geojson_data["features"] if geojson_data else []) + (geojson_lv["features"] if geojson_lv and geojson_lv.get("features") else [])
+        all_features = (base_kreise.get("features", []) if base_kreise else []) + (geojson_data["features"] if geojson_data else []) + (geojson_lv["features"] if geojson_lv and geojson_lv.get("features") else [])
         for feat in all_features:
             if feat.get("properties", {}).get("MATCH_KEY") == target_key:
                 geom = feat.get("geometry", {})
@@ -405,6 +404,15 @@ if search_kommune != "(Übersicht)":
 # ==============================================================================
 # 6. Styling & Leaflet-Karte
 # ==============================================================================
+def style_fn_kreise_bg(feature):
+    return {
+        "fillColor": "transparent",
+        "color": "#94a3b8",      # Dezentes Grau-Blau für die Kreisgrenzen
+        "weight": 1.0,           # Feine Linienstärke
+        "dashArray": "2, 2",     # Gestrichelt für den Hintergrund-Look
+        "fillOpacity": 0.0,
+    }
+
 def style_fn_lv(feature):
     return {
         "fillColor": "#00689D",
@@ -444,28 +452,6 @@ def style_fn_gemeinden(feature):
         "fillOpacity": 0.75,
     }
 
-def style_fn_kreise(feature):
-    props = feature.get("properties", {})
-    key = props.get("MATCH_KEY")
-    target_info = data_by_match_key.get(key)
-    is_highlighted = (
-        search_kommune != "(Übersicht)"
-        and target_info
-        and target_info.get("Kommune") == search_kommune
-    )
-    is_multi = props.get("Is_Multi", False)
-    weight = 2.5 if is_multi else 1.5
-    if is_highlighted:
-        weight = 3.5
-
-    return {
-        "fillColor": "#00689D",
-        "color": "#FFD700" if is_highlighted else "#475569",
-        "weight": weight,
-        "dashArray": "4, 4",
-        "fillOpacity": 0.30,
-    }
-
 def highlight_fn_gemeinden(feature):
     props = feature.get("properties", {})
     is_multi = props.get("Is_Multi", False)
@@ -474,17 +460,6 @@ def highlight_fn_gemeinden(feature):
         "color": "#0F2942",
         "weight": 3.5 if is_multi else 2.8,
         "fillOpacity": 0.90,
-    }
-
-def highlight_fn_kreise(feature):
-    props = feature.get("properties", {})
-    is_multi = props.get("Is_Multi", False)
-    return {
-        "fillColor": "#26BDE2",
-        "color": "#0F2942",
-        "weight": 3.0 if is_multi else 2.5,
-        "dashArray": "4, 4",
-        "fillOpacity": 0.50,
     }
 
 m = folium.Map(location=center_loc, zoom_start=zoom_lvl, tiles="OpenStreetMap")
@@ -534,7 +509,16 @@ def create_tooltip():
         sticky=False,
     )
 
-# 1. Landschaftsverband
+# 1. ALLERERSTER LAYER: Statische Kreisgrenzen im Hintergrund (komplett ohne Interaktion)
+if geojson_kreise_bg and geojson_kreise_bg.get("features"):
+    folium.GeoJson(
+        geojson_kreise_bg,
+        name="Kreisgrenzen (Hintergrund)",
+        style_function=style_fn_kreise_bg,
+        interactive=False,  # Deaktiviert jegliche Klicks, Hover-Effekte und Tooltips
+    ).add_to(m)
+
+# 2. ZWEITER LAYER: Landschaftsverband
 if geojson_lv and geojson_lv.get("features"):
     folium.GeoJson(
         geojson_lv,
@@ -544,17 +528,7 @@ if geojson_lv and geojson_lv.get("features"):
         tooltip=create_tooltip(),
     ).add_to(m)
 
-# 2. Landkreise
-if geojson_kreise and geojson_kreise["features"]:
-    folium.GeoJson(
-        geojson_kreise,
-        name="Landkreise",
-        style_function=style_fn_kreise,
-        highlight_function=highlight_fn_kreise,
-        tooltip=create_tooltip(),
-    ).add_to(m)
-
-# 3. Gemeinden
+# 3. DRITTER LAYER: Gemeinden (Oberster Layer)
 if geojson_data and geojson_data["features"]:
     folium.GeoJson(
         geojson_data,
@@ -643,12 +617,11 @@ if clicked_feature:
                 st.markdown("<span style='font-size: 12px;'>-</span>", unsafe_allow_html=True)
 
 # ==============================================================================
-# 9. Mehrere Diagramme parallel unterhalb der Karte (mit benutzerdefinierter Sortierung)
+# 9. Mehrere Diagramme parallel unterhalb der Karte
 # ==============================================================================
 st.markdown("---")
 st.subheader("📊 Auswertungen im Überblick")
 
-# Definierte Wunsch-Reihenfolgen
 sorting_orders = {
     "Gemeindegrößenklasse": [
         "Großstadt",
@@ -704,10 +677,8 @@ for idx, (col_name, title) in enumerate(chart_columns_config):
                 counts = series_split.value_counts().reset_index()
                 counts.columns = [col_name, "Anzahl"]
 
-                # Benutzerdefinierte Sortierung anwenden, falls definiert
                 if col_name in sorting_orders:
                     custom_order = sorting_orders[col_name]
-                    # Konvertiere in einen kategorischen Datentyp mit definierter Reihenfolge
                     counts[col_name] = pd.Categorical(counts[col_name], categories=custom_order, ordered=True)
                     counts = counts.sort_values(by=col_name, ascending=False).dropna(subset=[col_name])
                 else:
