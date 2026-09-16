@@ -314,7 +314,7 @@ def filter_features(geojson_dict, allowed_keys):
 
 geojson_data = filter_features(base_gemeinden, recorded_keys_set)
 geojson_kreise = filter_features(base_kreise, recorded_keys_set) if base_kreise else None
-geojson_lv = base_lv
+geojson_lv = filter_features(base_lv, recorded_keys_set) if base_lv else None
 
 # ==============================================================================
 # 5. GeoJSON-Properties anreichern
@@ -405,8 +405,6 @@ if search_kommune != "(Übersicht)":
 # ==============================================================================
 # 6. Styling & Leaflet-Karte
 # ==============================================================================
-PALETTE_LV = ["#00689D", "#4C9F38", "#FD9D24", "#DD1367", "#26BDE2"]
-
 def style_fn_lv(feature):
     return {
         "fillColor": "#00689D",
@@ -645,10 +643,35 @@ if clicked_feature:
                 st.markdown("<span style='font-size: 12px;'>-</span>", unsafe_allow_html=True)
 
 # ==============================================================================
-# 9. Mehrere Diagramme parallel unterhalb der Karte
+# 9. Mehrere Diagramme parallel unterhalb der Karte (mit benutzerdefinierter Sortierung)
 # ==============================================================================
 st.markdown("---")
 st.subheader("📊 Auswertungen im Überblick")
+
+# Definierte Wunsch-Reihenfolgen
+sorting_orders = {
+    "Gemeindegrößenklasse": [
+        "Großstadt",
+        "Mittelstadt",
+        "Kleinstadt",
+        "Kreis",
+        "Kommunalverband / Gemeindeverband",
+    ],
+    "Zentralörtliche Einstufung": [
+        "Oberzentrum",
+        "Mittelzentrum",
+        "Unterzentrum",
+        "keine zentralörtliche Einstufung",
+        "Kreis",
+        "Kommunalverband / Gemeindeverband",
+    ],
+    "Vorerfahrung": [
+        "Beginner",
+        "First Stepper",
+        "Performer",
+        "Professionals",
+    ],
+}
 
 chart_columns_config = [
     ("Gemeindegrößenklasse", "Gemeindegrößenklassen"),
@@ -658,7 +681,6 @@ chart_columns_config = [
     ("Vorerfahrung", "Vorerfahrung"),
 ]
 
-# Wir zeigen jeweils 3 Diagramme in der ersten Reihe und 2 in der zweiten Reihe
 row1_cols = st.columns(3)
 row2_cols = st.columns(2)
 all_chart_slots = list(row1_cols) + list(row2_cols)
@@ -681,7 +703,15 @@ for idx, (col_name, title) in enumerate(chart_columns_config):
             if not series_split.empty:
                 counts = series_split.value_counts().reset_index()
                 counts.columns = [col_name, "Anzahl"]
-                counts = counts.sort_values(by="Anzahl", ascending=True)
+
+                # Benutzerdefinierte Sortierung anwenden, falls definiert
+                if col_name in sorting_orders:
+                    custom_order = sorting_orders[col_name]
+                    # Konvertiere in einen kategorischen Datentyp mit definierter Reihenfolge
+                    counts[col_name] = pd.Categorical(counts[col_name], categories=custom_order, ordered=True)
+                    counts = counts.sort_values(by=col_name, ascending=False).dropna(subset=[col_name])
+                else:
+                    counts = counts.sort_values(by="Anzahl", ascending=True)
 
                 fig = px.bar(
                     counts,
