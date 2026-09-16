@@ -104,7 +104,6 @@ df_raw = load_data()
 # ==============================================================================
 st.sidebar.markdown("### 🎯 Filter & Steuerung")
 
-# A. Kommunen-Filter
 all_available_units = sorted(list(df_raw["Kommune"].dropna().unique()))
 selected_units = st.sidebar.multiselect(
     "Kommunen / Kreise auswählen:",
@@ -114,7 +113,6 @@ selected_units = st.sidebar.multiselect(
     key="ms_selected_units",
 )
 
-# B. Angebots-Filter (Semikolon-separierte Werte sauber aufschlüsseln)
 all_offers_raw = (
     df_raw["Angebot"]
     .dropna()
@@ -133,21 +131,19 @@ selected_offers = st.sidebar.multiselect(
     key="ms_selected_offers",
 )
 
-# Daten filtern basierend auf Sidebar-Eingaben
 df = df_raw.copy()
 
 if selected_units:
     df = df[df["Kommune"].isin(selected_units)]
 
 if selected_offers:
-    # Prüft, ob in der Angebots-Spalte (auch bei mehreren Semikolon-Einträgen) eines der gewählten Angebote enthalten ist
     mask = df["Angebot"].apply(
         lambda x: any(offer in [a.strip() for a in str(x).split(";")] for offer in selected_offers)
     )
     df = df[mask]
 
 # ==============================================================================
-# 3. Aggregation & Vorbereitung des Match-Dictionaries
+# 3. Aggregation & Erkennung von Mehrfachbewerbungen (2 Angebote & 2 Zeiten)
 # ==============================================================================
 data_by_match_key = {}
 total_applications_count = 0
@@ -200,6 +196,10 @@ for _, row in df.iterrows():
     else:
         total_applications_count += 1
 
+    # Kennzeichnung für genau 2 Angebote und 2 Einstiegszeitpunkte
+    is_dual_application = (len(ang_list) == 2 and len(start_list) == 2)
+    dual_badge = "🔄 2 Angebote & 2 Zeitpunkte" if is_dual_application else "Standard"
+
     data_by_match_key[match_key] = {
         "Kommune": clean_val(row.get("Kommune")),
         "Kreis": clean_val(row.get("Kreis")),
@@ -216,6 +216,8 @@ for _, row in df.iterrows():
         "Info_Einstieg": " / ".join(start_list) if start_list else "-",
         "Angebote_Paare": paired_offers,
         "Anzahl_Projekte": len(paired_offers) if paired_offers else 1,
+        "Is_Dual": is_dual_application,
+        "Dual_Badge": dual_badge,
         "Row_Data": {k: clean_val(v) for k, v in row.to_dict().items()},
     }
 
@@ -324,7 +326,7 @@ color_map = {
 }
 
 # ==============================================================================
-# 6. GeoJSON-Properties anreichern
+# 6. GeoJSON-Properties anreichern (inkl. Kennzeichnung)
 # ==============================================================================
 def enrich_features(features):
     if not features:
@@ -339,8 +341,11 @@ def enrich_features(features):
         props["MATCH_KEY"] = match_key
 
         info = data_by_match_key.get(match_key, {})
+        
+        # Visueller Zusatz im Tooltip für Doppelbewerbungen
+        badge_suffix = " 🔄 (2 Module)" if info.get("Is_Dual") else ""
         props["Im_Projekt"] = (
-            f"Ja ({info.get('Anzahl_Projekte', 1)} Modul{'e' if info.get('Anzahl_Projekte', 1) > 1 else ''})"
+            f"Ja ({info.get('Anzahl_Projekte', 1)} Modul{'e' if info.get('Anzahl_Projekte', 1) > 1 else ''}){badge_suffix}"
         )
         props["Info_Status"] = clean_val(info.get("Beschluss NKNRW"))
         props["Info_Angebot"] = clean_val(info.get("Info_Angebot"))
@@ -378,7 +383,7 @@ current_kommune_list = sorted(
     ))
 )
 search_kommune = st.sidebar.selectbox(
-    "🔍 In gefilterter Auswahl zentrieren:",
+    "🔍 In Auswahl zentrieren:",
     options=["(Übersicht)"] + current_kommune_list,
     index=0,
     key="sb_search_kommune_kreis",
@@ -632,7 +637,7 @@ if clicked_feature:
     if key and key in data_by_match_key:
         details = data_by_match_key[key]
 
-        st.info(f"### 📍 Factsheet: {details.get('Kommune')}")
+        st.info(f"### 📍 Factsheet: {details.get('Kommune')} ({details.get('Dual_Badge')})")
         c1, c2, c3, c4 = st.columns(4)
         with c1:
             st.markdown(f"<span style='font-size: 13px;'><b>Typ:</b> {details.get('Typ', '-')}</span>", unsafe_allow_html=True)
