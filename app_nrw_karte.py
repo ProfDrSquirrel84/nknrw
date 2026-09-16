@@ -430,7 +430,7 @@ def style_fn_gemeinden(feature):
     is_multi = props.get("Is_Multi", False)
     weight = 5.0 if is_multi else 1.3
     if is_highlighted:
-        weight = 6.0
+        weight = 2.0
 
     return {
         "fillColor": fill,
