@@ -407,8 +407,8 @@ if search_kommune != "(Übersicht)":
 def style_fn_kreise_bg(feature):
     return {
         "fillColor": "transparent",
-        "color": "#94a3b8",      # Dezentes Grau-Blau für die Kreisgrenzen
-        "weight": 1.0,           # Feine Linienstärke
+        "color": "#000000",      # Schwarz für die Kreisgrenzen
+        "weight": 2.0,           # Feine Linienstärke
         "dashArray": "2, 2",     # Gestrichelt für den Hintergrund-Look
         "fillOpacity": 0.0,
     }
