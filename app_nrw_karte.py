@@ -679,20 +679,20 @@ st.subheader("📊 Auswertungen im Überblick")
 
 sorting_orders = {
     "Gemeindegrößenklasse": [
-        "Großstadt",
-        "Mittelstadt",
-        "Kleinstadt",
-        "Kreis",
         "Kommunalverband / Gemeindeverband",
+        "Kreis",
+        "Kleinstadt",
+        "Mittelstadt",
+        "Großstadt",       
     ],
     "Zentralörtliche Einstufung": [
-        "Oberzentrum",
-        "Mittelzentrum",
-        "Unterzentrum",
-        "keine zentralörtliche Einstufung",
-        "Kreis",
         "Kommunalverband / Gemeindeverband",
-    ],
+        "Kreis",
+        "keine zentralörtliche Einstufung",
+        "Unterzentrum",
+        "Mittelzentrum",
+        "Oberzentrum",
+   ],
     "Vorerfahrung": [
         "Beginner",
         "First Stepper",
