@@ -13,8 +13,10 @@ BASE_DIR = Path(__file__).resolve().parent
 DATA_PATH = BASE_DIR / "daten.csv"
 GEOJSON_GEMEINDEN = BASE_DIR / "nrw_gemeinden.geojson"
 GEOJSON_KREISE = BASE_DIR / "nrw_kreise.geojson"
+GEOJSON_LV = BASE_DIR / "landschaftsverband_rheinland.geojson"
 
 GITHUB_KREISE_RAW_URL = "https://raw.githubusercontent.com/<DEIN_GITHUB_USER>/<DEIN_REPO>/main/nrw_kreise.geojson"
+GITHUB_LV_RAW_URL = "https://raw.githubusercontent.com/<DEIN_GITHUB_USER>/<DEIN_REPO>/main/landschaftsverband_rheinland.geojson"
 
 # ==============================================================================
 # Custom CSS für Vollbildkarte & schwebendes Overlay (oben rechts in der Karte)
@@ -277,10 +279,22 @@ def load_base_geojsons():
         except Exception:
             kreise_data = None
 
-    return gemeinden_data, kreise_data
+    lv_data = None
+    if GEOJSON_LV.is_file():
+        with open(GEOJSON_LV, "r", encoding="utf-8") as f:
+            lv_data = json.load(f)
+    elif "<DEIN_GITHUB_USER>" not in GITHUB_LV_RAW_URL:
+        try:
+            resp = requests.get(GITHUB_LV_RAW_URL, timeout=10)
+            if resp.status_code == 200:
+                lv_data = resp.json()
+        except Exception:
+            lv_data = None
+
+    return gemeinden_data, kreise_data, lv_data
 
 
-base_gemeinden, base_kreise = load_base_geojsons()
+base_gemeinden, base_kreise, base_lv = load_base_geojsons()
 
 
 def filter_features(geojson_dict, allowed_keys):
@@ -300,6 +314,7 @@ def filter_features(geojson_dict, allowed_keys):
 
 geojson_data = filter_features(base_gemeinden, recorded_keys_set)
 geojson_kreise = filter_features(base_kreise, recorded_keys_set) if base_kreise else None
+geojson_lv = base_lv  # Landschaftsverband wird als Ganzes angezeigt
 
 # ==============================================================================
 # 5. Variablenauswahl für Diagramm & synchrone Farbgebung
@@ -326,7 +341,7 @@ selected_chart_col = st.sidebar.selectbox(
         chart_candidates.index("Angebot") if "Angebot" in chart_candidates else 0
     ),
     key="sb_selected_variable",
-)
+]
 
 PALETTE = [
     "#00689D",
@@ -446,6 +461,16 @@ if search_kommune != "(Übersicht)":
 # ==============================================================================
 # 7. Styling & Leaflet-Karte
 # ==============================================================================
+def style_fn_lv(feature):
+    return {
+        "fillColor": "transparent",
+        "color": "#1e293b",
+        "weight": 2.5,
+        "dashArray": "6, 6",
+        "fillOpacity": 0.0,
+    }
+
+
 def style_fn_gemeinden(feature):
     props = feature.get("properties", {})
     key = props.get("MATCH_KEY")
@@ -569,6 +594,16 @@ def create_tooltip():
     )
 
 
+# 1. ZUERST Landschaftsverband (unterster Layer)
+if geojson_lv and geojson_lv.get("features"):
+    folium.GeoJson(
+        geojson_lv,
+        name="Landschaftsverband",
+        style_function=style_fn_lv,
+        tooltip=folium.GeoJsonTooltip(fields=["GEN", "AGS"], aliases=["Verband:", "AGS:"], style=tooltip_style),
+    ).add_to(m)
+
+# 2. DANACH Landkreise
 if geojson_kreise and geojson_kreise["features"]:
     folium.GeoJson(
         geojson_kreise,
@@ -578,6 +613,7 @@ if geojson_kreise and geojson_kreise["features"]:
         tooltip=create_tooltip(),
     ).add_to(m)
 
+# 3. ZULETZT Gemeinden (oberster Layer)
 if geojson_data and geojson_data["features"]:
     folium.GeoJson(
         geojson_data,
