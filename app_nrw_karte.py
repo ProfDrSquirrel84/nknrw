@@ -430,7 +430,7 @@ def style_fn_gemeinden_bg(feature):
 
 def style_fn_lv(feature):
     return {
-        "fillColor": "#00689D",
+        "fillColor": "#338398",
         "color": "#1e293b",
         "weight": 2.0,
         "dashArray": "4, 4",
@@ -439,7 +439,7 @@ def style_fn_lv(feature):
 
 def highlight_fn_lv(feature):
     return {
-        "fillColor": "#26BDE2",
+        "fillColor": "#338398",
         "color": "#0F2942",
         "weight": 2.5,
         "dashArray": "4, 4",
@@ -460,7 +460,7 @@ def style_fn_kreise(feature):
         weight = 3.5
 
     return {
-        "fillColor": "#00689D",
+        "fillColor": "#338398",
         "color": "#FFD700" if is_highlighted else "#475569",
         "weight": weight,
         "dashArray": "4, 4",
@@ -469,7 +469,7 @@ def style_fn_kreise(feature):
 
 def highlight_fn_kreise(feature):
     return {
-        "fillColor": "#26BDE2",
+        "fillColor": "#338398",
         "color": "#0F2942",
         "weight": 3.0,
         "dashArray": "4, 4",
@@ -491,7 +491,7 @@ def style_fn_gemeinden(feature):
         weight = 4.5
 
     return {
-        "fillColor": "#00689D",
+        "fillColor": "#338398",
         "color": "#FFD700" if is_highlighted else "#0F2942",
         "weight": weight,
         "fillOpacity": 0.75,
