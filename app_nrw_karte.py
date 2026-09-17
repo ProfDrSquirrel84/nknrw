@@ -21,7 +21,7 @@ GITHUB_GEMEINDEN_BG_RAW_URL = "https://raw.githubusercontent.com/<DEIN_GITHUB_US
 GITHUB_LV_RAW_URL = "https://raw.githubusercontent.com/<DEIN_GITHUB_USER>/<DEIN_REPO>/main/landschaftsverband_rheinland.geojson"
 
 # ==============================================================================
-# Custom CSS für Vollbildkarte & vergrößertes schwebendes Overlay (Live-Übersicht)
+# Custom CSS für Vollbildkarte & Overlays (Live-Übersicht & Legende)
 # ==============================================================================
 st.markdown("""
     <style>
@@ -48,6 +48,32 @@ st.markdown("""
         border: 1px solid #cbd5e1;
         width: 320px;
         pointer-events: auto;
+    }
+    .floating-legend {
+        position: absolute;
+        bottom: 30px;
+        right: 20px;
+        z-index: 99999;
+        background: rgba(255, 255, 255, 0.96);
+        padding: 12px 16px;
+        border-radius: 10px;
+        box-shadow: 0 4px 20px rgba(0,0,0,0.25);
+        border: 1px solid #cbd5e1;
+        width: 250px;
+        pointer-events: auto;
+        font-size: 12px;
+    }
+    .legend-item {
+        display: flex;
+        align-items: center;
+        margin-bottom: 6px;
+    }
+    .legend-color {
+        width: 14px;
+        height: 14px;
+        border-radius: 3px;
+        margin-right: 8px;
+        flex-shrink: 0;
     }
     </style>
 """, unsafe_allow_html=True)
@@ -366,7 +392,7 @@ geojson_gemeinden_bg = base_gemeinden_bg
 geojson_lv = filter_features(base_lv, recorded_keys_set) if base_lv else None
 
 # ==============================================================================
-# 5. GeoJSON-Properties anreichern (für den angepassten Tooltip)
+# 5. GeoJSON-Properties anreichern
 # ==============================================================================
 def enrich_features(features, layer_type="gemeinde"):
     if not features:
@@ -444,8 +470,24 @@ if search_kommune != "(Übersicht)":
                 break
 
 # ==============================================================================
-# 6. Styling & Leaflet-Karte
+# 6. Styling & Farbzuweisung nach Wunschvorgabe
 # ==============================================================================
+def get_kommune_color(target_info):
+    teilnahme = str(target_info.get("Teilnahme NKNRW", "0")).strip()
+    historie = str(target_info.get("Projekthistorie_id", "0")).strip()
+    
+    is_applicant = (teilnahme == "1")
+    has_history = (historie == "1")
+    
+    if is_applicant and has_history:
+        return "#c00d0d"  # Bewerber & Historie (Rot)
+    elif is_applicant:
+        return "#338398"  # Aktive NKNRW-Bewerber (Blau)
+    elif has_history:
+        return "#6f6f6e"  # Nur Projekthistorie (Grau)
+    else:
+        return "#00689D"  # Fallback
+
 def style_fn_gemeinden_bg(feature):
     return {
         "fillColor": "transparent",
@@ -482,10 +524,7 @@ def style_fn_kreise(feature):
         and target_info.get("Kommune") == search_kommune
     )
     
-    is_applicant = target_info.get("Teilnahme NKNRW") == "1"
-    fill_color = "#00689D" if is_applicant else "#64748B"
-    fill_opacity = 0.50 if is_applicant else 0.25
-
+    fill_color = get_kommune_color(target_info)
     weight = 2.5
     if is_highlighted:
         weight = 3.5
@@ -495,7 +534,7 @@ def style_fn_kreise(feature):
         "color": "#FFD700" if is_highlighted else "#475569",
         "weight": weight,
         "dashArray": "4, 4",
-        "fillOpacity": fill_opacity,
+        "fillOpacity": 0.55,
     }
 
 def highlight_fn_kreise(feature):
@@ -504,7 +543,7 @@ def highlight_fn_kreise(feature):
         "color": "#0F2942",
         "weight": 3.0,
         "dashArray": "4, 4",
-        "fillOpacity": 0.60,
+        "fillOpacity": 0.70,
     }
 
 def style_fn_gemeinden(feature):
@@ -517,10 +556,7 @@ def style_fn_gemeinden(feature):
         and target_info.get("Kommune") == search_kommune
     )
     
-    is_applicant = target_info.get("Teilnahme NKNRW") == "1"
-    fill_color = "#00689D" if is_applicant else "#64748B"
-    fill_opacity = 0.75 if is_applicant else 0.35
-
+    fill_color = get_kommune_color(target_info)
     is_multi = target_info.get("Is_Multi", False)
     weight = 2.8 if is_multi else 1.3
     if is_highlighted:
@@ -530,7 +566,7 @@ def style_fn_gemeinden(feature):
         "fillColor": fill_color,
         "color": "#FFD700" if is_highlighted else "#0F2942",
         "weight": weight,
-        "fillOpacity": fill_opacity,
+        "fillOpacity": 0.75,
     }
 
 def highlight_fn_gemeinden(feature):
@@ -621,7 +657,7 @@ if geojson_data and geojson_data["features"]:
     ).add_to(m)
 
 # ==============================================================================
-# 7. Vollbildkarte mit Live-Übersicht (Overlay)
+# 7. Vollbildkarte mit Live-Übersicht und Legende
 # ==============================================================================
 st.title("🗺️ NRW-Kommunen: Übersicht & Beteiligung")
 
@@ -656,6 +692,22 @@ st.markdown(f"""
         </div>
         <div style="font-size:13px; margin-top:4px;">
             Erfasste Einwohner (Bewerber): <b>{pop_str}</b>
+        </div>
+    </div>
+    
+    <div class="floating-legend">
+        <b style="font-size:13px; color:#0F2942;">🎨 Legende</b>
+        <div class="legend-item" style="margin-top: 8px;">
+            <div class="legend-color" style="background: #338398;"></div>
+            <span>NKNRW-Bewerber</span>
+        </div>
+        <div class="legend-item">
+            <div class="legend-color" style="background: #6f6f6e;"></div>
+            <span>Nur Projekthistorie</span>
+        </div>
+        <div class="legend-item">
+            <div class="legend-color" style="background: #c00d0d;"></div>
+            <span>Bewerber & Historie</span>
         </div>
     </div>
 """, unsafe_allow_html=True)
