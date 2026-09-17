@@ -130,16 +130,24 @@ def load_data():
     if beschluss_col and beschluss_col != "Beschluss NKNRW":
         df["Beschluss NKNRW"] = df[beschluss_col]
 
-    # Flexibles Mapping für die Spalte "Teilnahme NKNRW" (egal ob mit Unterstrich oder Leerzeichen)
+    # Flexible Spaltenerkennung für Teilnahme NKNRW
     teilnahme_col = next((c for c in df.columns if "TEILNAHME" in c.upper() and "NKNRW" in c.upper()), None)
     if teilnahme_col and teilnahme_col != "Teilnahme NKNRW":
         df = df.rename(columns={teilnahme_col: "Teilnahme NKNRW"})
     elif "Teilnahme NKNRW" not in df.columns:
         df["Teilnahme NKNRW"] = "1"
 
-    if "Projekthistorie_id" not in df.columns:
+    # Flexible Spaltenerkennung für Projekthistorie ID & Name
+    hist_id_col = next((c for c in df.columns if "PROJEKTHISTORIE" in c.upper() and "ID" in c.upper()), None)
+    if hist_id_col and hist_id_col != "Projekthistorie_id":
+        df = df.rename(columns={hist_id_col: "Projekthistorie_id"})
+    elif "Projekthistorie_id" not in df.columns:
         df["Projekthistorie_id"] = "0"
-    if "Projekthistorie_Name" not in df.columns:
+
+    hist_name_col = next((c for c in df.columns if "PROJEKTHISTORIE" in c.upper() and ("NAME" in c.upper() or "TEXT" in c.upper())), None)
+    if hist_name_col and hist_name_col != "Projekthistorie_Name":
+        df = df.rename(columns={hist_name_col: "Projekthistorie_Name"})
+    elif "Projekthistorie_Name" not in df.columns:
         df["Projekthistorie_Name"] = ""
 
     return df
@@ -154,7 +162,7 @@ st.sidebar.markdown("### 🎯 Filter & Steuerung")
 
 status_filter = st.sidebar.radio(
     "Datenansicht:",
-    options=["Alle Einheiten (Bewerber & Historie)", "Nur NKNRW-Bewerber (Teilnahme = 1)", "Nur Projekthistorie (Frühere Projekte)"],
+    options=["Alle Einheiten (Bewerber & Historie)", "Nur NKNRW-Bewerber (Teilnahme NKNRW = 1)", "Nur Projekthistorie (Projekthistorie id = 1)"],
     index=0,
     key="rb_status_filter"
 )
@@ -188,9 +196,9 @@ selected_offers = st.sidebar.multiselect(
 
 df = df_raw.copy()
 
-if status_filter == "Nur NKNRW-Bewerber (Teilnahme = 1)":
+if status_filter == "Nur NKNRW-Bewerber (Teilnahme NKNRW = 1)":
     df = df[df["Teilnahme NKNRW"].astype(str).str.strip() == "1"]
-elif status_filter == "Nur Projekthistorie (Frühere Projekte)":
+elif status_filter == "Nur Projekthistorie (Projekthistorie id = 1)":
     df = df[df["Projekthistorie_id"].astype(str).str.strip() == "1"]
 
 if selected_units:
@@ -389,9 +397,9 @@ def enrich_features(features, layer_type="gemeinde"):
         elif teilnahme == "1":
             status_text = "NKNRW-Bewerber"
         elif historie_id == "1":
-            status_text = "Frühere Projekte (Historie)"
+            status_text = "Projekthistorie (Frühere Projekte)"
         else:
-            status_text = "Kein NKNRW-Bewerber"
+            status_text = "Andere"
 
         props["Status_Art"] = status_text
         props["Im_Projekt"] = status_text
@@ -456,7 +464,7 @@ if search_kommune != "(Übersicht)":
                 break
 
 # ==============================================================================
-# 6. Styling & Leaflet-Karte
+# 6. Styling & Leaflet-Karte (Farbliche Unterscheidung nach Bewerber vs. Historie)
 # ==============================================================================
 def style_fn_gemeinden_bg(feature):
     return {
@@ -699,7 +707,7 @@ if clicked_feature:
     if key and key in data_by_match_key:
         details = data_by_match_key[key]
         
-        teilnahme_txt = "Ja" if details.get('Teilnahme NKNRW') == "1" else "Nein (nur Historie)"
+        teilnahme_txt = "Ja" if details.get('Teilnahme NKNRW') == "1" else "Nein"
 
         st.info(f"### 📍 Factsheet: {details.get('Kommune')} | NKNRW-Teilnahme: **{teilnahme_txt}**")
         c1, c2, c3, c4 = st.columns(4)
@@ -785,7 +793,16 @@ for tab_idx, (tab_name, configs) in enumerate(tab_content_config.items()):
                     
                     extracted_values = []
                     for item in data_by_match_key.values():
-                        if item.get("Teilnahme NKNRW") == "1":
+                        # Filterlogik basierend auf der Sidebar-Auswahl
+                        include_item = False
+                        if status_filter == "Alle Einheiten (Bewerber & Historie)":
+                            include_item = True
+                        elif status_filter == "Nur NKNRW-Bewerber (Teilnahme NKNRW = 1)":
+                            include_item = (item.get("Teilnahme NKNRW") == "1")
+                        elif status_filter == "Nur Projekthistorie (Projekthistorie id = 1)":
+                            include_item = (str(item.get("Projekthistorie_id")).strip() == "1")
+
+                        if include_item:
                             if lookup_key in ("Info_Angebot", "Info_Einstieg"):
                                 val_str = item.get(lookup_key, "-")
                                 if val_str and val_str != "-":
