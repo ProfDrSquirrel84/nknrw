@@ -681,7 +681,7 @@ if clicked_feature:
                 st.markdown("<span style='font-size: 11px;'>Keine frühere Historie</span>", unsafe_allow_html=True)
 
 # ==============================================================================
-# 9. Diagramme & Zeitplan in Tabs unterhalb der Karte
+# 9. Diagramme & Interaktiver Zeitplan in Tabs unterhalb der Karte
 # ==============================================================================
 st.markdown("---")
 st.subheader("📊 Auswertungen & Zeitplan im Überblick")
@@ -718,12 +718,12 @@ tab_content_config = {
         ("Einstiegszeitpunkt", "Einstiegszeitpunkt"),
         ("Vorerfahrung", "Vorerfahrung"),
     ],
-    "🗓️ Zeitplan & Steuerung": [],  # Spezieller Tab für die interaktive Planung
+    "🗓️ Zeitplan & Laufzeiten": [],
 }
 
 tabs = st.tabs(list(tab_content_config.keys()))
 
-# Tab 1 & 2: Die bisherigen Diagramme
+# Tabs 1 & 2: Diagramme
 for tab_idx, (tab_name, configs) in enumerate(list(tab_content_config.items())[:2]):
     with tabs[tab_idx]:
         cols = st.columns(3)
@@ -795,33 +795,67 @@ for tab_idx, (tab_name, configs) in enumerate(list(tab_content_config.items())[:
                     else:
                         st.info("Keine Daten")
 
-# Tab 3: Interaktiver Zeitplan & Data Editor
+# Tab 3: Interaktiver Zeitplan mit Laufzeiten-Berechnung
 with tabs[2]:
-    st.markdown("### 🗓️ Interaktive Einstiegszeitplan-Planung")
-    st.markdown("Passe die Einstiegszeitpunkte in der Tabelle an. Die Änderungen fließen direkt in die Ansicht ein.")
+    st.markdown("### 🗓️ Projekt-Zeitplan & Laufzeiten")
+    st.markdown("Hier werden die Starttermine mit den jeweiligen Projektlaufzeiten (**Prozesskette**: 33 Mon., **Bericht**: 6 Mon., **Strategie/Haushalt**: 12 Mon.) kombiniert und als Gantt-Diagramm dargestellt.")
+
+    # Aufbereitung der Daten für den Zeitplan
+    schedule_rows = []
     
-    # Relevante Spalten für den Editor herausfiltern
-    editor_df = df[["AGS", "Kommune", "Angebot", "Einstiegszeitpunkt", "Teilnahme NKNRW"]].copy()
-    
-    # Interaktive Tabelle bereitstellen
-    edited_df = st.data_editor(
-        editor_df,
-        num_rows="dynamic",
-        use_container_width=True,
-        key="schedule_editor"
-    )
-    
-    # Optional: Visueller Zeitstrahl (Gantt-ähnliches Plotly-Diagramm) basierend auf den Daten
-    if not edited_df.empty and "Einstiegszeitpunkt" in edited_df.columns:
-        st.markdown("#### 📈 Visuelle Verteilung der Einstiegszeitpunkte")
-        timeline_data = edited_df[edited_df["Einstiegszeitpunkt"].notna() & (edited_df["Einstiegszeitpunkt"] != "-")]
-        if not timeline_data.empty:
-            fig_time = px.histogram(
-                timeline_data,
-                x="Einstiegszeitpunkt",
-                color="Angebot",
-                title="Einstiegszeitpunkte nach Angebot",
-                barmode="group"
-            )
-            fig_time.update_layout(height=400, margin=dict(l=20, r=20, t=40, b=20))
-            st.plotly_chart(fig_time, use_container_width=True)
+    duration_map = {
+        "Vollständige Implementierung der Prozesskette": 33,
+        "Entwicklung eines Nachhaltigkeitsberichts": 6,
+        "Fortschreibung einer bestehenden Nachhaltigkeitsstrategie": 12,
+        "Entwicklung einer Nachhaltigkeitsstrategie": 12,
+        "Entwicklung eines Nachhaltigkeitshaushalts": 12,
+    }
+
+    for item in data_by_match_key.values():
+        if item.get("Teilnahme NKNRW") == "1":
+            kommune = item.get("Kommune")
+            pairs = item.get("Angebote_Paare", [])
+            for p in pairs:
+                angebot = p.get("angebot")
+                start_str = p.get("start").replace(" (alternativ)", "").strip()
+                
+                # Versuche Startdatum zu parsen (erwartet Format wie "2026-10" oder "2026-10-01")
+                if len(start_str) >= 7:
+                    try:
+                        start_date = pd.to_datetime(start_str[:7], format="%Y-%m")
+                        months = duration_map.get(angebot, 12)  # Standard 12 Monate falls unbekannt
+                        end_date = start_date + pd.DateOffset(months=months)
+                        
+                        schedule_rows.append({
+                            "Kommune": kommune,
+                            "Angebot": angebot,
+                            "Start": start_date,
+                            "Ende": end_date,
+                            "Laufzeit (Monate)": months
+                        })
+                    except Exception:
+                        pass
+
+    if schedule_rows:
+        sched_df = pd.DataFrame(schedule_rows)
+        
+        # Interaktiver Data-Editor für die Starttermine
+        st.markdown("#### 📝 Starttermine anpassen")
+        edited_sched = st.data_editor(sched_df, use_container_width=True, key="gantt_editor")
+        
+        # Gantt-Diagramm generieren
+        st.markdown("#### 📈 Visueller Projekt-Zeitstrahl (Gantt)")
+        fig_gantt = px.timeline(
+            edited_sched,
+            x_start="Start",
+            x_end="Ende",
+            y="Kommune",
+            color="Angebot",
+            hover_data=["Laufzeit (Monate)"],
+            title="Projektlaufzeiten nach Kommune und Angebot"
+        )
+        fig_gantt.update_yaxes(autorange="reversed")  # Sortiert Kommunen von oben nach unten
+        fig_gantt.update_layout(height=500, margin=dict(l=20, r=20, t=40, b=20))
+        st.plotly_chart(fig_gantt, use_container_width=True)
+    else:
+        st.info("Keine gültigen Starttermine für den Zeitplan gefunden.")
