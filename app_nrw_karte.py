@@ -583,9 +583,9 @@ if geojson_data and geojson_data["features"]:
     ).add_to(m)
 
 # ==============================================================================
-# 7. Vollbildkarte mit integrierter Live-Übersicht & Legende (oben rechts)
+# 7. Kompakter Titel, Karte mit integrierter Live-Übersicht & Legende
 # ==============================================================================
-st.title("🗺️ NRW-Kommunen: Übersicht & Beteiligung")
+st.markdown("### 🗺️ NRW-Kommunen: Übersicht & Beteiligung")
 
 st.markdown('<div class="map-container">', unsafe_allow_html=True)
 
@@ -609,28 +609,28 @@ pop_str = f"{int(unique_pop):,}".replace(",", ".") if unique_pop > 0 else "-"
 
 st.markdown(f"""
     <div class="floating-overlay-top-right">
-        <b style="font-size:15px; color:#0F2942;">📊 Live-Übersicht</b><br>
-        <span style="font-size:12px; color:#64748B;">{filter_label}</span>
-        <hr style="margin: 6px 0; border-color:#cbd5e1;">
-        <div style="display:flex; justify-content:space-between; font-size:13px;">
+        <b style="font-size:14px; color:#0F2942;">📊 Live-Übersicht</b><br>
+        <span style="font-size:11px; color:#64748B;">{filter_label}</span>
+        <hr style="margin: 4px 0; border-color:#cbd5e1;">
+        <div style="display:flex; justify-content:space-between; font-size:12px;">
             <span>NKNRW-Bewerber: <b>{applicants_count}</b></span>
             <span>Anträge: <b>{total_applications_count}</b></span>
         </div>
-        <div style="font-size:13px; margin-top:4px;">
+        <div style="font-size:12px; margin-top:3px;">
             Erfasste Einwohner (Bewerber): <b>{pop_str}</b>
         </div>
-        <hr style="margin: 8px 0; border-color:#cbd5e1;">
-        <b style="font-size:12px; color:#0F2942;">🎨 Legende</b>
-        <div style="display: flex; align-items: center; margin-top: 5px; font-size: 11px;">
-            <div style="width: 12px; height: 12px; background: #338398; border-radius: 2px; margin-right: 6px; flex-shrink: 0;"></div>
+        <hr style="margin: 6px 0; border-color:#cbd5e1;">
+        <b style="font-size:11px; color:#0F2942;">🎨 Legende</b>
+        <div style="display: flex; align-items: center; margin-top: 4px; font-size: 11px;">
+            <div style="width: 10px; height: 10px; background: #338398; border-radius: 2px; margin-right: 6px; flex-shrink: 0;"></div>
             <span>NKNRW-Bewerber</span>
         </div>
-        <div style="display: flex; align-items: center; margin-top: 4px; font-size: 11px;">
-            <div style="width: 12px; height: 12px; background: #6f6f6e; border-radius: 2px; margin-right: 6px; flex-shrink: 0;"></div>
+        <div style="display: flex; align-items: center; margin-top: 3px; font-size: 11px;">
+            <div style="width: 10px; height: 10px; background: #6f6f6e; border-radius: 2px; margin-right: 6px; flex-shrink: 0;"></div>
             <span>Nur Projekthistorie</span>
         </div>
-        <div style="display: flex; align-items: center; margin-top: 4px; font-size: 11px;">
-            <div style="width: 12px; height: 12px; background: #c00d0d; border-radius: 2px; margin-right: 6px; flex-shrink: 0;"></div>
+        <div style="display: flex; align-items: center; margin-top: 3px; font-size: 11px;">
+            <div style="width: 10px; height: 10px; background: #c00d0d; border-radius: 2px; margin-right: 6px; flex-shrink: 0;"></div>
             <span>Bewerber & Historie</span>
         </div>
     </div>
@@ -639,7 +639,7 @@ st.markdown(f"""
 map_output = st_folium(
     m,
     width="100%",
-    height=750,
+    height=720,
     returned_objects=["last_active_drawing"],
 )
 st.markdown('</div>', unsafe_allow_html=True)
@@ -694,11 +694,6 @@ sorting_orders = {
         "Mittelstadt",
         "Großstadt",       
     ],
-    "Zentralörtliche Einstufung": [
-        "Grundzentrum und niedriger",
-        "Mittelzentrum",
-        "Oberzentrum und höher",
-   ],
     "Vorerfahrung": [
         "Beginner",
         "First Stepper",
@@ -707,15 +702,14 @@ sorting_orders = {
     ],
 }
 
+# Reduzierte Diagramm-Auswahl (Zentralörtliche Einstufung und Einstiegszeitpunkt entfernt)
 tab_content_config = {
     "Inhaltliche Auswertungen": [
         ("Angebot", "Angebot"),
         ("Gemeindegrößenklasse", "Gemeindegrößenklassen"),
-        ("Zentralörtliche Einstufung", "Zentralörtliche Einstufung"),
     ],
     "Organisatorisches & Status": [
         ("Beschluss NKNRW", "Beschluss NKNRW"),
-        ("Einstiegszeitpunkt", "Einstiegszeitpunkt"),
         ("Vorerfahrung", "Vorerfahrung"),
     ],
     "🗓️ Zeitplan & Laufzeiten": [],
@@ -726,7 +720,7 @@ tabs = st.tabs(list(tab_content_config.keys()))
 # Tabs 1 & 2: Diagramme
 for tab_idx, (tab_name, configs) in enumerate(list(tab_content_config.items())[:2]):
     with tabs[tab_idx]:
-        cols = st.columns(3)
+        cols = st.columns(len(configs) if len(configs) > 0 else 1)
         for idx, (col_name, title) in enumerate(configs):
             if idx < len(cols):
                 with cols[idx]:
@@ -734,7 +728,6 @@ for tab_idx, (tab_name, configs) in enumerate(list(tab_content_config.items())[:
                     
                     target_field_map = {
                         "Angebot": "Info_Angebot",
-                        "Einstiegszeitpunkt": "Info_Einstieg",
                     }
                     lookup_key = target_field_map.get(col_name, col_name)
                     
@@ -749,7 +742,7 @@ for tab_idx, (tab_name, configs) in enumerate(list(tab_content_config.items())[:
                             include_item = (str(item.get("Projekthistorie id")).strip() == "1")
 
                         if include_item:
-                            if lookup_key in ("Info_Angebot", "Info_Einstieg"):
+                            if lookup_key == "Info_Angebot":
                                 val_str = item.get(lookup_key, "-")
                                 if val_str and val_str != "-":
                                     parts = [p.strip() for p in val_str.replace("/", "|").split("|") if p.strip() and p.strip() != "-"]
@@ -800,7 +793,6 @@ with tabs[2]:
     st.markdown("### 🗓️ Projekt-Zeitplan & Laufzeiten")
     st.markdown("Hier werden die Starttermine mit den jeweiligen Projektlaufzeiten (**Prozesskette**: 33 Mon., **Bericht**: 6 Mon., **Strategie/Haushalt**: 12 Mon.) kombiniert und als Gantt-Diagramm dargestellt.")
 
-    # Aufbereitung der Daten für den Zeitplan
     schedule_rows = []
     
     duration_map = {
@@ -819,11 +811,10 @@ with tabs[2]:
                 angebot = p.get("angebot")
                 start_str = p.get("start").replace(" (alternativ)", "").strip()
                 
-                # Versuche Startdatum zu parsen (erwartet Format wie "2026-10" oder "2026-10-01")
                 if len(start_str) >= 7:
                     try:
                         start_date = pd.to_datetime(start_str[:7], format="%Y-%m")
-                        months = duration_map.get(angebot, 12)  # Standard 12 Monate falls unbekannt
+                        months = duration_map.get(angebot, 12)
                         end_date = start_date + pd.DateOffset(months=months)
                         
                         schedule_rows.append({
@@ -839,11 +830,9 @@ with tabs[2]:
     if schedule_rows:
         sched_df = pd.DataFrame(schedule_rows)
         
-        # Interaktiver Data-Editor für die Starttermine
         st.markdown("#### 📝 Starttermine anpassen")
         edited_sched = st.data_editor(sched_df, use_container_width=True, key="gantt_editor")
         
-        # Gantt-Diagramm generieren
         st.markdown("#### 📈 Visueller Projekt-Zeitstrahl (Gantt)")
         fig_gantt = px.timeline(
             edited_sched,
@@ -854,7 +843,7 @@ with tabs[2]:
             hover_data=["Laufzeit (Monate)"],
             title="Projektlaufzeiten nach Kommune und Angebot"
         )
-        fig_gantt.update_yaxes(autorange="reversed")  # Sortiert Kommunen von oben nach unten
+        fig_gantt.update_yaxes(autorange="reversed")
         fig_gantt.update_layout(height=500, margin=dict(l=20, r=20, t=40, b=20))
         st.plotly_chart(fig_gantt, use_container_width=True)
     else:
