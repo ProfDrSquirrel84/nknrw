@@ -156,6 +156,7 @@ def load_data():
     if beschluss_col and beschluss_col != "Beschluss NKNRW":
         df["Beschluss NKNRW"] = df[beschluss_col]
 
+    # Korrekte Spaltenerkennung für "Teilnahme NKNRW" und "Projekthistorie id"
     teilnahme_col = next((c for c in df.columns if "TEILNAHME" in c.upper() and "NKNRW" in c.upper()), None)
     if teilnahme_col and teilnahme_col != "Teilnahme NKNRW":
         df = df.rename(columns={teilnahme_col: "Teilnahme NKNRW"})
@@ -163,10 +164,10 @@ def load_data():
         df["Teilnahme NKNRW"] = "1"
 
     hist_id_col = next((c for c in df.columns if "PROJEKTHISTORIE" in c.upper() and "ID" in c.upper()), None)
-    if hist_id_col and hist_id_col != "Projekthistorie_id":
-        df = df.rename(columns={hist_id_col: "Projekthistorie_id"})
-    elif "Projekthistorie_id" not in df.columns:
-        df["Projekthistorie_id"] = "0"
+    if hist_id_col and hist_id_col != "Projekthistorie id":
+        df = df.rename(columns={hist_id_col: "Projekthistorie id"})
+    elif "Projekthistorie id" not in df.columns:
+        df["Projekthistorie id"] = "0"
 
     hist_name_col = next((c for c in df.columns if "PROJEKTHISTORIE" in c.upper() and ("NAME" in c.upper() or "TEXT" in c.upper())), None)
     if hist_name_col and hist_name_col != "Projekthistorie_Name":
@@ -223,7 +224,7 @@ df = df_raw.copy()
 if status_filter == "Nur NKNRW-Bewerber (Teilnahme NKNRW = 1)":
     df = df[df["Teilnahme NKNRW"].astype(str).str.strip() == "1"]
 elif status_filter == "Nur Projekthistorie (Projekthistorie id = 1)":
-    df = df[df["Projekthistorie_id"].astype(str).str.strip() == "1"]
+    df = df[df["Projekthistorie id"].astype(str).str.strip() == "1"]
 
 if selected_units:
     df = df[df["Kommune"].isin(selected_units)]
@@ -305,7 +306,7 @@ for _, row in df.iterrows():
         "Beschluss NKNRW": clean_val(row.get("Beschluss NKNRW")),
         "Vorerfahrung": clean_val(row.get("Vorerfahrung")),
         "Teilnahme NKNRW": clean_val(row.get("Teilnahme NKNRW")),
-        "Projekthistorie_id": clean_val(row.get("Projekthistorie_id")),
+        "Projekthistorie id": clean_val(row.get("Projekthistorie id")),
         "Projekthistorie_Name": clean_val(row.get("Projekthistorie_Name")),
         "Info_Angebot": " | ".join(ang_list) if ang_list else "-",
         "Info_Einstieg": " / ".join(start_list) if start_list else "-",
@@ -470,16 +471,16 @@ if search_kommune != "(Übersicht)":
                 break
 
 # ==============================================================================
-# 6. Styling & Farbzuweisung nach Wunschvorgabe
+# 6. Styling & Farbzuweisung exakt nach Vorgabe
 # ==============================================================================
 def get_kommune_color(target_info):
     teilnahme = str(target_info.get("Teilnahme NKNRW", "0")).strip()
-    historie = str(target_info.get("Projekthistorie_id", "0")).strip()
+    historie = str(target_info.get("Projekthistorie id", "0")).strip()
     
     is_applicant = (teilnahme == "1")
     has_history = (historie == "1")
     
-    if is_applicant and has_history:
+    if has_history and is_applicant:
         return "#c00d0d"  # Bewerber & Historie (Rot)
     elif is_applicant:
         return "#338398"  # Aktive NKNRW-Bewerber (Blau)
@@ -823,7 +824,7 @@ for tab_idx, (tab_name, configs) in enumerate(tab_content_config.items()):
                         elif status_filter == "Nur NKNRW-Bewerber (Teilnahme NKNRW = 1)":
                             include_item = (item.get("Teilnahme NKNRW") == "1")
                         elif status_filter == "Nur Projekthistorie (Projekthistorie id = 1)":
-                            include_item = (str(item.get("Projekthistorie_id")).strip() == "1")
+                            include_item = (str(item.get("Projekthistorie id")).strip() == "1")
 
                         if include_item:
                             if lookup_key in ("Info_Angebot", "Info_Einstieg"):
