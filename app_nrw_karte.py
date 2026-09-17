@@ -130,6 +130,18 @@ def load_data():
     if beschluss_col and beschluss_col != "Beschluss NKNRW":
         df["Beschluss NKNRW"] = df[beschluss_col]
 
+    # Flexibles Mapping für die Spalte "Teilnahme NKNRW" (egal ob mit Unterstrich oder Leerzeichen)
+    teilnahme_col = next((c for c in df.columns if "TEILNAHME" in c.upper() and "NKNRW" in c.upper()), None)
+    if teilnahme_col and teilnahme_col != "Teilnahme NKNRW":
+        df = df.rename(columns={teilnahme_col: "Teilnahme NKNRW"})
+    elif "Teilnahme NKNRW" not in df.columns:
+        df["Teilnahme NKNRW"] = "1"
+
+    if "Projekthistorie_id" not in df.columns:
+        df["Projekthistorie_id"] = "0"
+    if "Projekthistorie_Name" not in df.columns:
+        df["Projekthistorie_Name"] = ""
+
     return df
 
 
@@ -140,7 +152,6 @@ df_raw = load_data()
 # ==============================================================================
 st.sidebar.markdown("### 🎯 Filter & Steuerung")
 
-# Neuer Filter für Projektstatus / Teilnahme
 status_filter = st.sidebar.radio(
     "Datenansicht:",
     options=["Alle Einheiten (Bewerber & Historie)", "Nur NKNRW-Bewerber (Teilnahme = 1)", "Nur Projekthistorie (Frühere Projekte)"],
@@ -177,9 +188,8 @@ selected_offers = st.sidebar.multiselect(
 
 df = df_raw.copy()
 
-# Anwenden des Status-Filters
 if status_filter == "Nur NKNRW-Bewerber (Teilnahme = 1)":
-    df = df[df["Teilnahme_NKNRW"].astype(str).str.strip() == "1"]
+    df = df[df["Teilnahme NKNRW"].astype(str).str.strip() == "1"]
 elif status_filter == "Nur Projekthistorie (Frühere Projekte)":
     df = df[df["Projekthistorie_id"].astype(str).str.strip() == "1"]
 
@@ -244,7 +254,7 @@ for _, row in df.iterrows():
             })
         total_applications_count += len(ang_list)
     else:
-        if clean_val(row.get("Teilnahme_NKNRW")) == "1":
+        if clean_val(row.get("Teilnahme NKNRW")) == "1":
             total_applications_count += 1
 
     is_multi = (len(ang_list) > 1 or len(start_list) > 1)
@@ -262,13 +272,13 @@ for _, row in df.iterrows():
         "Zentralörtliche Einstufung": clean_val(row.get("Zentralörtliche Einstufung")),
         "Beschluss NKNRW": clean_val(row.get("Beschluss NKNRW")),
         "Vorerfahrung": clean_val(row.get("Vorerfahrung")),
-        "Teilnahme_NKNRW": clean_val(row.get("Teilnahme_NKNRW")),
+        "Teilnahme NKNRW": clean_val(row.get("Teilnahme NKNRW")),
         "Projekthistorie_id": clean_val(row.get("Projekthistorie_id")),
         "Projekthistorie_Name": clean_val(row.get("Projekthistorie_Name")),
         "Info_Angebot": " | ".join(ang_list) if ang_list else "-",
         "Info_Einstieg": " / ".join(start_list) if start_list else "-",
         "Angebote_Paare": paired_offers,
-        "Anzahl_Projekte": len(paired_offers) if paired_offers else (1 if clean_val(row.get("Teilnahme_NKNRW")) == "1" else 0),
+        "Anzahl_Projekte": len(paired_offers) if paired_offers else (1 if clean_val(row.get("Teilnahme NKNRW")) == "1" else 0),
         "Is_Multi": is_multi,
         "Multi_Badge": multi_badge,
         "Row_Data": {k: clean_val(v) for k, v in row.to_dict().items()},
@@ -371,7 +381,7 @@ def enrich_features(features, layer_type="gemeinde"):
 
         info = data_by_match_key.get(match_key, {})
         
-        teilnahme = info.get("Teilnahme_NKNRW", "0")
+        teilnahme = info.get("Teilnahme NKNRW", "0")
         historie_id = info.get("Projekthistorie_id", "0")
         
         if teilnahme == "1" and historie_id == "1":
@@ -446,7 +456,7 @@ if search_kommune != "(Übersicht)":
                 break
 
 # ==============================================================================
-# 6. Styling & Leaflet-Karte (Unterscheidung nach Teilnahme / Historie)
+# 6. Styling & Leaflet-Karte
 # ==============================================================================
 def style_fn_gemeinden_bg(feature):
     return {
@@ -484,8 +494,7 @@ def style_fn_kreise(feature):
         and target_info.get("Kommune") == search_kommune
     )
     
-    # Farbgebung: Aktive Bewerber kräftig, reine Historie dezenter
-    is_applicant = target_info.get("Teilnahme_NKNRW") == "1"
+    is_applicant = target_info.get("Teilnahme NKNRW") == "1"
     fill_color = "#00689D" if is_applicant else "#64748B"
     fill_opacity = 0.50 if is_applicant else 0.25
 
@@ -520,7 +529,7 @@ def style_fn_gemeinden(feature):
         and target_info.get("Kommune") == search_kommune
     )
     
-    is_applicant = target_info.get("Teilnahme_NKNRW") == "1"
+    is_applicant = target_info.get("Teilnahme NKNRW") == "1"
     fill_color = "#00689D" if is_applicant else "#64748B"
     fill_opacity = 0.75 if is_applicant else 0.35
 
@@ -645,10 +654,15 @@ if selected_offers:
     active_filters.append(f"{len(selected_offers)} Angebote")
 filter_label = f"Aktiv: {', '.join(active_filters)}" if active_filters else "(Alle Einheiten)"
 
-applicants_count = sum(1 for v in data_by_match_key.values() if v.get("Teilnahme_NKNRW") == "1")
-unique_pop = (
-    df[df["Teilnahme_NKNRW"].astype(str).str.strip() == "1"].drop_duplicates(subset=["AGS_MATCH"])["Bevoelkerung_Num"].dropna().sum()
-)
+applicants_count = sum(1 for v in data_by_match_key.values() if v.get("Teilnahme NKNRW") == "1")
+
+if "Teilnahme NKNRW" in df.columns and "Bevoelkerung_Num" in df.columns:
+    unique_pop = (
+        df[df["Teilnahme NKNRW"].astype(str).str.strip() == "1"].drop_duplicates(subset=["AGS_MATCH"])["Bevoelkerung_Num"].dropna().sum()
+    )
+else:
+    unique_pop = 0
+
 pop_str = f"{int(unique_pop):,}".replace(",", ".") if unique_pop > 0 else "-"
 
 st.markdown(f"""
@@ -685,7 +699,7 @@ if clicked_feature:
     if key and key in data_by_match_key:
         details = data_by_match_key[key]
         
-        teilnahme_txt = "Ja" if details.get('Teilnahme_NKNRW') == "1" else "Nein (nur Historie)"
+        teilnahme_txt = "Ja" if details.get('Teilnahme NKNRW') == "1" else "Nein (nur Historie)"
 
         st.info(f"### 📍 Factsheet: {details.get('Kommune')} | NKNRW-Teilnahme: **{teilnahme_txt}**")
         c1, c2, c3, c4 = st.columns(4)
@@ -771,8 +785,7 @@ for tab_idx, (tab_name, configs) in enumerate(tab_content_config.items()):
                     
                     extracted_values = []
                     for item in data_by_match_key.values():
-                        # Nur aktuelle Bewerber in die Angebots-/Statusdiagramme einbeziehen (oder nach Wunsch anpassen)
-                        if item.get("Teilnahme_NKNRW") == "1":
+                        if item.get("Teilnahme NKNRW") == "1":
                             if lookup_key in ("Info_Angebot", "Info_Einstieg"):
                                 val_str = item.get(lookup_key, "-")
                                 if val_str and val_str != "-":
