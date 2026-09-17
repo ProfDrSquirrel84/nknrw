@@ -57,7 +57,7 @@ def clean_val(val, default="-"):
     if val is None or pd.isna(val):
         return default
     s = str(val).strip()
-    return default if s in ("", "nan", "None", "<NA>") else s
+    return default if s in ("", "nan", "None", "<NA>", "#NV") else s
 
 
 # ==============================================================================
@@ -140,6 +140,14 @@ df_raw = load_data()
 # ==============================================================================
 st.sidebar.markdown("### 🎯 Filter & Steuerung")
 
+# Neuer Filter für Projektstatus / Teilnahme
+status_filter = st.sidebar.radio(
+    "Datenansicht:",
+    options=["Alle Einheiten (Bewerber & Historie)", "Nur NKNRW-Bewerber (Teilnahme = 1)", "Nur Projekthistorie (Frühere Projekte)"],
+    index=0,
+    key="rb_status_filter"
+)
+
 all_available_units = sorted(list(df_raw["Kommune"].dropna().unique()))
 selected_units = st.sidebar.multiselect(
     "Kommunen / Kreise auswählen:",
@@ -157,7 +165,7 @@ all_offers_raw = (
     .explode()
     .str.strip()
 )
-all_available_offers = sorted([o for o in all_offers_raw.unique() if o and o != "nan"])
+all_available_offers = sorted([o for o in all_offers_raw.unique() if o and o != "nan" and o != "#NV"])
 
 selected_offers = st.sidebar.multiselect(
     "Angebote auswählen:",
@@ -168,6 +176,12 @@ selected_offers = st.sidebar.multiselect(
 )
 
 df = df_raw.copy()
+
+# Anwenden des Status-Filters
+if status_filter == "Nur NKNRW-Bewerber (Teilnahme = 1)":
+    df = df[df["Teilnahme_NKNRW"].astype(str).str.strip() == "1"]
+elif status_filter == "Nur Projekthistorie (Frühere Projekte)":
+    df = df[df["Projekthistorie_id"].astype(str).str.strip() == "1"]
 
 if selected_units:
     df = df[df["Kommune"].isin(selected_units)]
@@ -193,12 +207,12 @@ for _, row in df.iterrows():
     ang_list = [
         a.strip()
         for a in raw_ang.split(";")
-        if a.strip() and a.strip() not in ("-", "nan")
+        if a.strip() and a.strip() not in ("-", "nan", "#NV")
     ]
     start_list = [
         s.strip()
         for s in raw_start.split(";")
-        if s.strip() and s.strip() not in ("-", "nan")
+        if s.strip() and s.strip() not in ("-", "nan", "#NV")
     ]
 
     paired_offers = []
@@ -230,7 +244,8 @@ for _, row in df.iterrows():
             })
         total_applications_count += len(ang_list)
     else:
-        total_applications_count += 1
+        if clean_val(row.get("Teilnahme_NKNRW")) == "1":
+            total_applications_count += 1
 
     is_multi = (len(ang_list) > 1 or len(start_list) > 1)
     multi_badge = f"🔄 Mehrfachangabe ({len(ang_list)} Angebote / {len(start_list)} Starttermine)" if is_multi else "Standard"
@@ -247,10 +262,13 @@ for _, row in df.iterrows():
         "Zentralörtliche Einstufung": clean_val(row.get("Zentralörtliche Einstufung")),
         "Beschluss NKNRW": clean_val(row.get("Beschluss NKNRW")),
         "Vorerfahrung": clean_val(row.get("Vorerfahrung")),
+        "Teilnahme_NKNRW": clean_val(row.get("Teilnahme_NKNRW")),
+        "Projekthistorie_id": clean_val(row.get("Projekthistorie_id")),
+        "Projekthistorie_Name": clean_val(row.get("Projekthistorie_Name")),
         "Info_Angebot": " | ".join(ang_list) if ang_list else "-",
         "Info_Einstieg": " / ".join(start_list) if start_list else "-",
         "Angebote_Paare": paired_offers,
-        "Anzahl_Projekte": len(paired_offers) if paired_offers else 1,
+        "Anzahl_Projekte": len(paired_offers) if paired_offers else (1 if clean_val(row.get("Teilnahme_NKNRW")) == "1" else 0),
         "Is_Multi": is_multi,
         "Multi_Badge": multi_badge,
         "Row_Data": {k: clean_val(v) for k, v in row.to_dict().items()},
@@ -353,11 +371,20 @@ def enrich_features(features, layer_type="gemeinde"):
 
         info = data_by_match_key.get(match_key, {})
         
-        badge_suffix = " 🔄 (Mehrfachangabe)" if info.get("Is_Multi") else ""
-        props["Im_Projekt"] = (
-            f"Ja ({info.get('Anzahl_Projekte', 1)} Modul{'e' if info.get('Anzahl_Projekte', 1) > 1 else ''}){badge_suffix}"
-        )
-        props["Is_Multi"] = info.get("Is_Multi", False)
+        teilnahme = info.get("Teilnahme_NKNRW", "0")
+        historie_id = info.get("Projekthistorie_id", "0")
+        
+        if teilnahme == "1" and historie_id == "1":
+            status_text = "Bewerber & Historie"
+        elif teilnahme == "1":
+            status_text = "NKNRW-Bewerber"
+        elif historie_id == "1":
+            status_text = "Frühere Projekte (Historie)"
+        else:
+            status_text = "Kein NKNRW-Bewerber"
+
+        props["Status_Art"] = status_text
+        props["Im_Projekt"] = status_text
         props["Info_Status"] = clean_val(info.get("Beschluss NKNRW"))
         props["Info_Angebot"] = clean_val(info.get("Info_Angebot"))
         props["Info_Einstieg"] = clean_val(info.get("Info_Einstieg"))
@@ -366,6 +393,7 @@ def enrich_features(features, layer_type="gemeinde"):
         props["Info_Partei"] = clean_val(info.get("Partei"))
         props["Info_Klasse"] = clean_val(info.get("Gemeindegrößenklasse"))
         props["Info_Zentral"] = clean_val(info.get("Zentralörtliche Einstufung"))
+        props["Projekthistorie_Name"] = clean_val(info.get("Projekthistorie_Name"))
 
         pop_num = info.get("Bevoelkerung_Num")
         if pd.notnull(pop_num):
@@ -418,7 +446,7 @@ if search_kommune != "(Übersicht)":
                 break
 
 # ==============================================================================
-# 6. Styling & Leaflet-Karte
+# 6. Styling & Leaflet-Karte (Unterscheidung nach Teilnahme / Historie)
 # ==============================================================================
 def style_fn_gemeinden_bg(feature):
     return {
@@ -430,7 +458,7 @@ def style_fn_gemeinden_bg(feature):
 
 def style_fn_lv(feature):
     return {
-        "fillColor": "#338398",
+        "fillColor": "#00689D",
         "color": "#1e293b",
         "weight": 2.0,
         "dashArray": "4, 4",
@@ -439,7 +467,7 @@ def style_fn_lv(feature):
 
 def highlight_fn_lv(feature):
     return {
-        "fillColor": "#338398",
+        "fillColor": "#26BDE2",
         "color": "#0F2942",
         "weight": 2.5,
         "dashArray": "4, 4",
@@ -449,27 +477,33 @@ def highlight_fn_lv(feature):
 def style_fn_kreise(feature):
     props = feature.get("properties", {})
     key = props.get("MATCH_KEY")
-    target_info = data_by_match_key.get(key)
+    target_info = data_by_match_key.get(key, {})
     is_highlighted = (
         search_kommune != "(Übersicht)"
         and target_info
         and target_info.get("Kommune") == search_kommune
     )
+    
+    # Farbgebung: Aktive Bewerber kräftig, reine Historie dezenter
+    is_applicant = target_info.get("Teilnahme_NKNRW") == "1"
+    fill_color = "#00689D" if is_applicant else "#64748B"
+    fill_opacity = 0.50 if is_applicant else 0.25
+
     weight = 2.5
     if is_highlighted:
         weight = 3.5
 
     return {
-        "fillColor": "#338398",
+        "fillColor": fill_color,
         "color": "#FFD700" if is_highlighted else "#475569",
         "weight": weight,
         "dashArray": "4, 4",
-        "fillOpacity": 0.40,
+        "fillOpacity": fill_opacity,
     }
 
 def highlight_fn_kreise(feature):
     return {
-        "fillColor": "#338398",
+        "fillColor": "#26BDE2",
         "color": "#0F2942",
         "weight": 3.0,
         "dashArray": "4, 4",
@@ -479,35 +513,39 @@ def highlight_fn_kreise(feature):
 def style_fn_gemeinden(feature):
     props = feature.get("properties", {})
     key = props.get("MATCH_KEY")
-    target_info = data_by_match_key.get(key)
+    target_info = data_by_match_key.get(key, {})
     is_highlighted = (
         search_kommune != "(Übersicht)"
         and target_info
         and target_info.get("Kommune") == search_kommune
     )
-    is_multi = props.get("Is_Multi", False)
+    
+    is_applicant = target_info.get("Teilnahme_NKNRW") == "1"
+    fill_color = "#00689D" if is_applicant else "#64748B"
+    fill_opacity = 0.75 if is_applicant else 0.35
+
+    is_multi = target_info.get("Is_Multi", False)
     weight = 2.8 if is_multi else 1.3
     if is_highlighted:
         weight = 4.5
 
     return {
-        "fillColor": "#338398",
+        "fillColor": fill_color,
         "color": "#FFD700" if is_highlighted else "#0F2942",
         "weight": weight,
-        "fillOpacity": 0.75,
+        "fillOpacity": fill_opacity,
     }
 
 def highlight_fn_gemeinden(feature):
     props = feature.get("properties", {})
-    is_multi = props.get("Is_Multi", False)
     return {
         "fillColor": "#26BDE2",
         "color": "#0F2942",
-        "weight": 3.5 if is_multi else 2.8,
+        "weight": 3.5,
         "fillOpacity": 0.90,
     }
 
-m = folium.Map(location=center_loc, zoom_start=zoom_lvl, tiles="openstreetmap")
+m = folium.Map(location=center_loc, zoom_start=zoom_lvl, tiles="OpenStreetMap")
 
 tooltip_style = """
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
@@ -538,7 +576,7 @@ def create_tooltip():
         ],
         aliases=[
             "Kommune / Kreis:",
-            "Projektbeteiligung:",
+            "Status / Projekt:",
             "Bevölkerung:",
             "Größenklasse:",
             "Partei:",
@@ -607,8 +645,9 @@ if selected_offers:
     active_filters.append(f"{len(selected_offers)} Angebote")
 filter_label = f"Aktiv: {', '.join(active_filters)}" if active_filters else "(Alle Einheiten)"
 
+applicants_count = sum(1 for v in data_by_match_key.values() if v.get("Teilnahme_NKNRW") == "1")
 unique_pop = (
-    df.drop_duplicates(subset=["AGS_MATCH"])["Bevoelkerung_Num"].dropna().sum()
+    df[df["Teilnahme_NKNRW"].astype(str).str.strip() == "1"].drop_duplicates(subset=["AGS_MATCH"])["Bevoelkerung_Num"].dropna().sum()
 )
 pop_str = f"{int(unique_pop):,}".replace(",", ".") if unique_pop > 0 else "-"
 
@@ -618,11 +657,11 @@ st.markdown(f"""
         <span style="font-size:12px; color:#64748B;">{filter_label}</span>
         <hr style="margin: 6px 0; border-color:#cbd5e1;">
         <div style="display:flex; justify-content:space-between; font-size:13px;">
-            <span>Bewerber: <b>{len(data_by_match_key)}</b></span>
+            <span>NKNRW-Bewerber: <b>{applicants_count}</b></span>
             <span>Anträge: <b>{total_applications_count}</b></span>
         </div>
         <div style="font-size:13px; margin-top:4px;">
-            Erfasste Einwohner: <b>{pop_str}</b>
+            Erfasste Einwohner (Bewerber): <b>{pop_str}</b>
         </div>
     </div>
 """, unsafe_allow_html=True)
@@ -636,7 +675,7 @@ map_output = st_folium(
 st.markdown('</div>', unsafe_allow_html=True)
 
 # ==============================================================================
-# 8. Factsheet bei Klick auf ein Polygon
+# 8. Factsheet bei Klick auf ein Polygon (inkl. Projekthistorie)
 # ==============================================================================
 clicked_feature = map_output.get("last_active_drawing") if map_output else None
 if clicked_feature:
@@ -645,8 +684,10 @@ if clicked_feature:
 
     if key and key in data_by_match_key:
         details = data_by_match_key[key]
+        
+        teilnahme_txt = "Ja" if details.get('Teilnahme_NKNRW') == "1" else "Nein (nur Historie)"
 
-        st.info(f"### 📍 Factsheet: {details.get('Kommune')} ({details.get('Multi_Badge')})")
+        st.info(f"### 📍 Factsheet: {details.get('Kommune')} | NKNRW-Teilnahme: **{teilnahme_txt}**")
         c1, c2, c3, c4 = st.columns(4)
         with c1:
             st.markdown(f"<span style='font-size: 13px;'><b>Typ:</b> {details.get('Typ', '-')}</span>", unsafe_allow_html=True)
@@ -661,18 +702,16 @@ if clicked_feature:
             st.markdown(f"<span style='font-size: 13px;'><b>Beschluss NKNRW:</b> {details.get('Beschluss NKNRW', '-')}</span>", unsafe_allow_html=True)
             st.markdown(f"<span style='font-size: 13px;'><b>Vorerfahrung:</b> {details.get('Vorerfahrung', '-')}</span>", unsafe_allow_html=True)
         with c4:
-            st.markdown(f"<span style='font-size: 13px;'><b>Bewerbungen ({details['Anzahl_Projekte']}):</b></span>", unsafe_allow_html=True)
-            if details["Angebote_Paare"]:
-                for item in details["Angebote_Paare"]:
-                    st.markdown(
-                        f"<span style='font-size: 12px;'>• <b>{item['angebot']}</b><br>&nbsp;&nbsp;<i>Start: {item['start']}</i></span>",
-                        unsafe_allow_html=True,
-                    )
+            st.markdown(f"<span style='font-size: 13px;'><b>Projekthistorie:</b></span>", unsafe_allow_html=True)
+            hist_name = details.get('Projekthistorie_Name', '-')
+            if hist_name and hist_name != "-":
+                for proj in hist_name.split(";"):
+                    st.markdown(f"<span style='font-size: 11px;'>• {proj.strip()}</span>", unsafe_allow_html=True)
             else:
-                st.markdown("<span style='font-size: 12px;'>-</span>", unsafe_allow_html=True)
+                st.markdown("<span style='font-size: 11px;'>Keine frühere Historie</span>", unsafe_allow_html=True)
 
 # ==============================================================================
-# 9. Diagramme in Tabs unterteilt unterhalb der Karte (mit sauberer Splitting-Logik)
+# 9. Diagramme in Tabs unterteilt unterhalb der Karte
 # ==============================================================================
 st.markdown("---")
 st.subheader("📊 Auswertungen im Überblick")
@@ -724,7 +763,6 @@ for tab_idx, (tab_name, configs) in enumerate(tab_content_config.items()):
                 with cols[idx]:
                     st.markdown(f"<div style='font-size: 14px; font-weight: 600; text-align: center; margin-bottom: 5px;'>{title}</div>", unsafe_allow_html=True)
                     
-                    # Korrekte Aufteilung über die aufbereiteten Daten in data_by_match_key (nutzt Info_Angebot und Info_Einstieg)
                     target_field_map = {
                         "Angebot": "Info_Angebot",
                         "Einstiegszeitpunkt": "Info_Einstieg",
@@ -733,16 +771,18 @@ for tab_idx, (tab_name, configs) in enumerate(tab_content_config.items()):
                     
                     extracted_values = []
                     for item in data_by_match_key.values():
-                        if lookup_key in ("Info_Angebot", "Info_Einstieg"):
-                            val_str = item.get(lookup_key, "-")
-                            if val_str and val_str != "-":
-                                parts = [p.strip() for p in val_str.replace("/", "|").split("|") if p.strip() and p.strip() != "-"]
-                                extracted_values.extend(parts)
-                        else:
-                            val_str = item.get(col_name, "-")
-                            if val_str and val_str != "-":
-                                parts = [p.strip() for p in val_str.split(";") if p.strip() and p.strip() != "-"]
-                                extracted_values.extend(parts)
+                        # Nur aktuelle Bewerber in die Angebots-/Statusdiagramme einbeziehen (oder nach Wunsch anpassen)
+                        if item.get("Teilnahme_NKNRW") == "1":
+                            if lookup_key in ("Info_Angebot", "Info_Einstieg"):
+                                val_str = item.get(lookup_key, "-")
+                                if val_str and val_str != "-":
+                                    parts = [p.strip() for p in val_str.replace("/", "|").split("|") if p.strip() and p.strip() != "-"]
+                                    extracted_values.extend(parts)
+                            else:
+                                val_str = item.get(col_name, "-")
+                                if val_str and val_str != "-":
+                                    parts = [p.strip() for p in val_str.split(";") if p.strip() and p.strip() != "-"]
+                                    extracted_values.extend(parts)
 
                     if extracted_values:
                         series_split = pd.Series(extracted_values)
