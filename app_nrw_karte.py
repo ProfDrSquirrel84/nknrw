@@ -49,17 +49,17 @@ st.markdown("""
         width: 320px;
         pointer-events: auto;
     }
-    .floating-legend {
+.floating-legend {
         position: absolute;
         bottom: 30px;
-        right: 20px;
+        left: 20px; /* Unten links platziert */
         z-index: 99999;
         background: rgba(255, 255, 255, 0.96);
         padding: 12px 16px;
         border-radius: 10px;
         box-shadow: 0 4px 20px rgba(0,0,0,0.25);
         border: 1px solid #cbd5e1;
-        width: 250px;
+        width: 230px;
         pointer-events: auto;
         font-size: 12px;
     }
@@ -658,7 +658,7 @@ if geojson_data and geojson_data["features"]:
     ).add_to(m)
 
 # ==============================================================================
-# 7. Vollbildkarte mit Live-Übersicht und Legende
+# 7. Vollbildkarte mit Live-Übersicht (oben rechts) und Legende (unten links)
 # ==============================================================================
 st.title("🗺️ NRW-Kommunen: Übersicht & Beteiligung")
 
@@ -682,6 +682,7 @@ else:
 
 pop_str = f"{int(unique_pop):,}".replace(",", ".") if unique_pop > 0 else "-"
 
+# Live-Übersicht (oben rechts)
 st.markdown(f"""
     <div class="floating-overlay-top-right">
         <b style="font-size:15px; color:#0F2942;">📊 Live-Übersicht</b><br>
@@ -695,7 +696,10 @@ st.markdown(f"""
             Erfasste Einwohner (Bewerber): <b>{pop_str}</b>
         </div>
     </div>
-    
+""", unsafe_allow_html=True)
+
+# Legende (unten links in der Karte platziert)
+st.markdown("""
     <div class="floating-legend">
         <b style="font-size:13px; color:#0F2942;">🎨 Legende</b>
         <div class="legend-item" style="margin-top: 8px;">
