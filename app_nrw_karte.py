@@ -681,10 +681,10 @@ if clicked_feature:
                 st.markdown("<span style='font-size: 11px;'>Keine frühere Historie</span>", unsafe_allow_html=True)
 
 # ==============================================================================
-# 9. Diagramme in Tabs unterteilt unterhalb der Karte (mit aktualisierter Sortierung)
+# 9. Diagramme & Zeitplan in Tabs unterhalb der Karte
 # ==============================================================================
 st.markdown("---")
-st.subheader("📊 Auswertungen im Überblick")
+st.subheader("📊 Auswertungen & Zeitplan im Überblick")
 
 sorting_orders = {
     "Gemeindegrößenklasse": [
@@ -718,11 +718,13 @@ tab_content_config = {
         ("Einstiegszeitpunkt", "Einstiegszeitpunkt"),
         ("Vorerfahrung", "Vorerfahrung"),
     ],
+    "🗓️ Zeitplan & Steuerung": [],  # Spezieller Tab für die interaktive Planung
 }
 
 tabs = st.tabs(list(tab_content_config.keys()))
 
-for tab_idx, (tab_name, configs) in enumerate(tab_content_config.items()):
+# Tab 1 & 2: Die bisherigen Diagramme
+for tab_idx, (tab_name, configs) in enumerate(list(tab_content_config.items())[:2]):
     with tabs[tab_idx]:
         cols = st.columns(3)
         for idx, (col_name, title) in enumerate(configs):
@@ -792,3 +794,34 @@ for tab_idx, (tab_name, configs) in enumerate(tab_content_config.items()):
                         st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
                     else:
                         st.info("Keine Daten")
+
+# Tab 3: Interaktiver Zeitplan & Data Editor
+with tabs[2]:
+    st.markdown("### 🗓️ Interaktive Einstiegszeitplan-Planung")
+    st.markdown("Passe die Einstiegszeitpunkte in der Tabelle an. Die Änderungen fließen direkt in die Ansicht ein.")
+    
+    # Relevante Spalten für den Editor herausfiltern
+    editor_df = df[["AGS", "Kommune", "Angebot", "Einstiegszeitpunkt", "Teilnahme NKNRW"]].copy()
+    
+    # Interaktive Tabelle bereitstellen
+    edited_df = st.data_editor(
+        editor_df,
+        num_rows="dynamic",
+        use_container_width=True,
+        key="schedule_editor"
+    )
+    
+    # Optional: Visueller Zeitstrahl (Gantt-ähnliches Plotly-Diagramm) basierend auf den Daten
+    if not edited_df.empty and "Einstiegszeitpunkt" in edited_df.columns:
+        st.markdown("#### 📈 Visuelle Verteilung der Einstiegszeitpunkte")
+        timeline_data = edited_df[edited_df["Einstiegszeitpunkt"].notna() & (edited_df["Einstiegszeitpunkt"] != "-")]
+        if not timeline_data.empty:
+            fig_time = px.histogram(
+                timeline_data,
+                x="Einstiegszeitpunkt",
+                color="Angebot",
+                title="Einstiegszeitpunkte nach Angebot",
+                barmode="group"
+            )
+            fig_time.update_layout(height=400, margin=dict(l=20, r=20, t=40, b=20))
+            st.plotly_chart(fig_time, use_container_width=True)
