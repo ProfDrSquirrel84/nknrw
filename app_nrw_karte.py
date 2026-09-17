@@ -507,7 +507,7 @@ def highlight_fn_gemeinden(feature):
         "fillOpacity": 0.90,
     }
 
-m = folium.Map(location=center_loc, zoom_start=zoom_lvl, tiles="OpenStreetMap")
+m = folium.Map(location=center_loc, zoom_start=zoom_lvl, tiles="CartoDB positron")
 
 tooltip_style = """
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
