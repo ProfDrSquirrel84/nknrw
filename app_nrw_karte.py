@@ -130,14 +130,12 @@ def load_data():
     if beschluss_col and beschluss_col != "Beschluss NKNRW":
         df["Beschluss NKNRW"] = df[beschluss_col]
 
-    # Flexible Spaltenerkennung für Teilnahme NKNRW
     teilnahme_col = next((c for c in df.columns if "TEILNAHME" in c.upper() and "NKNRW" in c.upper()), None)
     if teilnahme_col and teilnahme_col != "Teilnahme NKNRW":
         df = df.rename(columns={teilnahme_col: "Teilnahme NKNRW"})
     elif "Teilnahme NKNRW" not in df.columns:
         df["Teilnahme NKNRW"] = "1"
 
-    # Flexible Spaltenerkennung für Projekthistorie ID & Name
     hist_id_col = next((c for c in df.columns if "PROJEKTHISTORIE" in c.upper() and "ID" in c.upper()), None)
     if hist_id_col and hist_id_col != "Projekthistorie_id":
         df = df.rename(columns={hist_id_col: "Projekthistorie_id"})
@@ -368,7 +366,7 @@ geojson_gemeinden_bg = base_gemeinden_bg
 geojson_lv = filter_features(base_lv, recorded_keys_set) if base_lv else None
 
 # ==============================================================================
-# 5. GeoJSON-Properties anreichern
+# 5. GeoJSON-Properties anreichern (für den angepassten Tooltip)
 # ==============================================================================
 def enrich_features(features, layer_type="gemeinde"):
     if not features:
@@ -389,29 +387,11 @@ def enrich_features(features, layer_type="gemeinde"):
 
         info = data_by_match_key.get(match_key, {})
         
-        teilnahme = info.get("Teilnahme NKNRW", "0")
-        historie_id = info.get("Projekthistorie_id", "0")
-        
-        if teilnahme == "1" and historie_id == "1":
-            status_text = "Bewerber & Historie"
-        elif teilnahme == "1":
-            status_text = "NKNRW-Bewerber"
-        elif historie_id == "1":
-            status_text = "Projekthistorie (Frühere Projekte)"
-        else:
-            status_text = "Andere"
-
-        props["Status_Art"] = status_text
-        props["Im_Projekt"] = status_text
-        props["Info_Status"] = clean_val(info.get("Beschluss NKNRW"))
-        props["Info_Angebot"] = clean_val(info.get("Info_Angebot"))
-        props["Info_Einstieg"] = clean_val(info.get("Info_Einstieg"))
         props["Info_Typ"] = clean_val(info.get("Typ"))
         props["Info_RB"] = clean_val(info.get("Regierungsbezirk"))
-        props["Info_Partei"] = clean_val(info.get("Partei"))
         props["Info_Klasse"] = clean_val(info.get("Gemeindegrößenklasse"))
-        props["Info_Zentral"] = clean_val(info.get("Zentralörtliche Einstufung"))
         props["Projekthistorie_Name"] = clean_val(info.get("Projekthistorie_Name"))
+        props["Info_Angebot"] = clean_val(info.get("Info_Angebot"))
 
         pop_num = info.get("Bevoelkerung_Num")
         if pd.notnull(pop_num):
@@ -445,7 +425,7 @@ zoom_lvl = 8
 
 if search_kommune != "(Übersicht)":
     target_entry = next(
-        (v for v in data_by_match_key.values() if v.get("Kommune") == search_kommune),
+        (v for v in data_by_match_key.values() if v.get("Kommune"] == search_kommune),
         None,
     )
     if target_entry:
@@ -464,7 +444,7 @@ if search_kommune != "(Übersicht)":
                 break
 
 # ==============================================================================
-# 6. Styling & Leaflet-Karte (Farbliche Unterscheidung nach Bewerber vs. Historie)
+# 6. Styling & Leaflet-Karte
 # ==============================================================================
 def style_fn_gemeinden_bg(feature):
     return {
@@ -580,29 +560,21 @@ def create_tooltip():
     return folium.GeoJsonTooltip(
         fields=[
             "GEN",
-            "Im_Projekt",
-            "Info_Bevoelkerung",
-            "Info_Klasse",
-            "Info_Partei",
-            "Info_Status",
-            "Info_Angebot",
-            "Info_Einstieg",
-            "Info_Zentral",
             "Info_Typ",
             "Info_RB",
+            "Info_Bevoelkerung",
+            "Info_Klasse",
+            "Projekthistorie_Name",
+            "Info_Angebot",
         ],
         aliases=[
             "Kommune / Kreis:",
-            "Status / Projekt:",
-            "Bevölkerung:",
-            "Größenklasse:",
-            "Partei:",
-            "Beschluss NKNRW:",
-            "Angebot(e):",
-            "Wunschstart(e):",
-            "Zentralörtlich:",
             "Typ:",
             "Regierungsbezirk:",
+            "Bevölkerung:",
+            "Größenklasse:",
+            "Projekthistorie:",
+            "Angebot(e):",
         ],
         style=tooltip_style,
         localize=True,
@@ -793,7 +765,6 @@ for tab_idx, (tab_name, configs) in enumerate(tab_content_config.items()):
                     
                     extracted_values = []
                     for item in data_by_match_key.values():
-                        # Filterlogik basierend auf der Sidebar-Auswahl
                         include_item = False
                         if status_filter == "Alle Einheiten (Bewerber & Historie)":
                             include_item = True
