@@ -681,26 +681,23 @@ if clicked_feature:
                 st.markdown("<span style='font-size: 11px;'>Keine frühere Historie</span>", unsafe_allow_html=True)
 
 # ==============================================================================
-# 9. Diagramme in Tabs unterteilt unterhalb der Karte
+# 9. Diagramme in Tabs unterteilt unterhalb der Karte (mit aktualisierter Sortierung)
 # ==============================================================================
 st.markdown("---")
 st.subheader("📊 Auswertungen im Überblick")
 
 sorting_orders = {
     "Gemeindegrößenklasse": [
-        "Kommunalverband / Gemeindeverband",
-        "Kreis",
-        "Kleinstadt",
+        "Landgemeinde",
+        "Kleine Kleinstadt",
+        "Größere Kleinstadt",
         "Mittelstadt",
         "Großstadt",       
     ],
     "Zentralörtliche Einstufung": [
-        "Kommunalverband / Gemeindeverband",
-        "Kreis",
-        "keine zentralörtliche Einstufung",
-        "Unterzentrum",
+        "Grundzentrum und niedriger",
         "Mittelzentrum",
-        "Oberzentrum",
+        "Oberzentrum und höher",
    ],
     "Vorerfahrung": [
         "Beginner",
