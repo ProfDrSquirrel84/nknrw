@@ -17,6 +17,10 @@ GEOJSON_GEMEINDEN_BG = BASE_DIR / "nrw_gemeinden_bg.geojson"
 GEOJSON_INDELAND = BASE_DIR / "indeland.geojson"
 GEOJSON_LV = BASE_DIR / "landschaftsverband_rheinland.geojson"
 
+# Logo-Pfade (Lokal im Ordner oder via GitHub Raw URL)
+LAG_LOGO_PATH = BASE_DIR / "LAG_Logo.png"  # Bzw. URL oder Dateiname anpassen
+NKNRW_LOGO_PATH = BASE_DIR / "NKNRW_Logo.png"  # Bzw. URL oder Dateiname anpassen
+
 GITHUB_KREISE_RAW_URL = "https://raw.githubusercontent.com/<DEIN_GITHUB_USER>/<DEIN_REPO>/main/nrw_kreise.geojson"
 GITHUB_GEMEINDEN_BG_RAW_URL = "https://raw.githubusercontent.com/<DEIN_GITHUB_USER>/<DEIN_REPO>/main/nrw_gemeinden_bg.geojson"
 GITHUB_INDELAND_RAW_URL = "https://raw.githubusercontent.com/<DEIN_GITHUB_USER>/<DEIN_REPO>/main/indeland.geojson"
@@ -156,9 +160,18 @@ def load_data():
 df_raw = load_data()
 
 # ==============================================================================
-# 2. Interaktive Auswahlfilter in der linken Sidebar
+# 2. Interaktive Auswahlfilter & LAG_Logo in der linken Sidebar
 # ==============================================================================
-st.sidebar.markdown("### 🎯 Filter & Steuerung")
+if LAG_LOGO_PATH.is_file():
+    st.sidebar.image(str(LAG_LOGO_PATH), use_column_width=True)
+else:
+    # Fallback falls direkt via URL eingebunden werden soll
+    try:
+        st.sidebar.image("https://raw.githubusercontent.com/<DEIN_GITHUB_USER>/<DEIN_REPO>/main/LAG_Logo.png", use_column_width=True)
+    except Exception:
+        pass
+
+st.sidebar.markdown("### Filter & Steuerung")
 
 status_filter = st.sidebar.radio(
     "Datenansicht:",
@@ -519,9 +532,19 @@ if geojson_data and geojson_data["features"]:
     folium.GeoJson(geojson_data, name="Gemeinden", style_function=style_fn_gemeinden, highlight_function=highlight_fn_gemeinden, tooltip=create_tooltip()).add_to(m)
 
 # ==============================================================================
-# 7. Layout-Aufteilung in zwei Spalten (Links: Karte & Live-Übersicht | Rechts: Sidebar-Diagramme)
+# 7. NKNRW_Logo oben in der Mitte & Layout-Aufteilung (Karte links, Charts rechts)
 # ==============================================================================
-st.markdown("### 🗺️ NRW-Kommunen: Übersicht & Beteiligung")
+
+# NKNRW_Logo oben zentriert über dem Hauptbereich platzieren
+col_logo_left, col_logo_center, col_logo_right = st.columns([1, 2, 1])
+with col_logo_center:
+    if NKNRW_LOGO_PATH.is_file():
+        st.image(str(NKNRW_LOGO_PATH), use_column_width=True)
+    else:
+        try:
+            st.image("https://raw.githubusercontent.com/<DEIN_GITHUB_USER>/<DEIN_REPO>/main/NKNRW_Logo.png", use_column_width=True)
+        except Exception:
+            st.markdown("<h2 style='text-align: center;'>NRW-Kommunen</h2>", unsafe_allow_html=True)
 
 col_map, col_charts = st.columns([1.3, 1])
 
@@ -584,7 +607,7 @@ with col_map:
     st.markdown('</div>', unsafe_allow_html=True)
 
 with col_charts:
-    st.markdown("#### 📊 Auswertungen")
+    st.markdown("#### Auswertungen")
 
     sorting_orders = {
         "Gemeindegrößenklasse": [
