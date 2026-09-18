@@ -457,9 +457,79 @@ search_kommune = st.sidebar.selectbox(
     key="sb_search_kommune_kreis",
 )
 
-# Startwerte für Center und Zoom
 center_loc = [51.45, 7.50]
 zoom_lvl = 8
+
+if search_kommune != "(Übersicht)":
+    target_entry = next(
+        (v for v in data_by_match_key.values() if v.get("Kommune") == search_kommune),
+        None,
+    )
+    if target_entry:
+        target_key = str(target_entry["Row_Data"].get("AGS_MATCH", "")).strip()
+        all_features = (base_kreise.get("features", []) if base_kreise else []) + (geojson_data["features"] if geojson_data else []) + (geojson_indeland.get("features", []) if geojson_indeland else []) + (geojson_lv.get("features", []) if geojson_lv and geojson_lv.get("features") else [])
+        for feat in all_features:
+            if feat.get("properties", {}).get("MATCH_KEY") == target_key:
+                geom = feat.get("geometry", {})
+                coords = geom.get("coordinates", [])
+                if coords:
+                    poly_pts = coords[0] if geom.get("type") == "Polygon" else coords[0][0]
+                    avg_lat = sum(pt[1] for pt in poly_pts) / len(poly_pts)
+                    avg_lon = sum(pt[0] for pt in poly_pts) / len(poly_pts)
+                    center_loc = [avg_lat, avg_lon]
+                    zoom_lvl = 9 if "kreis" in str(target_entry.get("Typ", "")).lower() else 11
+                break
+
+# ==============================================================================
+# 6. Styling & Karten-Setup
+# ==============================================================================
+def get_kommune_color(target_info):
+    teilnahme = str(target_info.get("Teilnahme NKNRW", "0")).strip()
+    historie = str(target_info.get("Projekthistorie id", "0")).strip()
+    
+    is_applicant = (teilnahme == "1")
+    has_history = (historie == "1")
+    
+    if has_history and is_applicant:
+        return "#c00d0d"
+    elif is_applicant:
+        return "#338398"
+    elif has_history:
+        return "#6f6f6e"
+    else:
+        return "#00689D"
+
+def style_fn_gemeinden_bg(feature):
+    return {"fillColor": "transparent", "color": "#000000", "weight": 0.5, "fillOpacity": 0.0}
+
+def style_fn_lv(feature):
+    return {"fillColor": "transparent", "color": "#1e293b", "weight": 2.5, "dashArray": "6, 6", "fillOpacity": 0.0}
+
+def highlight_fn_lv(feature):
+    return {"fillColor": "transparent", "color": "#0F2942", "weight": 3.5, "dashArray": "6, 6", "fillOpacity": 0.0}
+
+def style_fn_kreise(feature):
+    props = feature.get("properties", {})
+    key = props.get("MATCH_KEY")
+    target_info = data_by_match_key.get(key, {})
+    is_highlighted = (search_kommune != "(Übersicht)" and target_info and target_info.get("Kommune") == search_kommune)
+    fill_color = get_kommune_color(target_info)
+    return {"fillColor": fill_color, "color": "#FFD700" if is_highlighted else "#475569", "weight": 3.5 if is_highlighted else 2.5, "dashArray": "4, 4", "fillOpacity": 0.55}
+
+def highlight_fn_kreise(feature):
+    return {"fillColor": "#26BDE2", "color": "#0F2942", "weight": 3.0, "dashArray": "4, 4", "fillOpacity": 0.70}
+
+def style_fn_gemeinden(feature):
+    props = feature.get("properties", {})
+    key = props.get("MATCH_KEY")
+    target_info = data_by_match_key.get(key, {})
+    is_highlighted = (search_kommune != "(Übersicht)" and target_info and target_info.get("Kommune") == search_kommune)
+    fill_color = get_kommune_color(target_info)
+    is_multi = target_info.get("Is_Multi", False)
+    return {"fillColor": fill_color, "color": "#FFD700" is_highlighted else "#0F2942", "weight": 4.5 if is_highlighted else (2.8 if is_multi else 1.3), "fillOpacity": 0.75}
+
+def highlight_fn_gemeinden(feature):
+    return {"fillColor": "#26BDE2", "color": "#0F2942", "weight": 3.5, "fillOpacity": 0.90}
 
 m = folium.Map(location=center_loc, zoom_start=zoom_lvl, tiles="OpenStreetMap")
 
@@ -482,28 +552,6 @@ def create_tooltip():
         style=tooltip_style, localize=True, sticky=False,
     )
 
-# Style-Funktionen definiert
-def style_fn_gemeinden_bg(feature):
-    return {"fillColor": "transparent", "color": "#000000", "weight": 0.5, "fillOpacity": 0.0}
-
-def style_fn_lv(feature):
-    return {"fillColor": "transparent", "color": "#1e293b", "weight": 2.5, "dashArray": "6, 6", "fillOpacity": 0.0}
-
-def highlight_fn_lv(feature):
-    return {"fillColor": "transparent", "color": "#0F2942", "weight": 3.5, "dashArray": "6, 6", "fillOpacity": 0.0}
-
-def style_fn_kreise(feature):
-    return {"fillColor": "#338398", "color": "#475569", "weight": 2.5, "dashArray": "4, 4", "fillOpacity": 0.55}
-
-def highlight_fn_kreise(feature):
-    return {"fillColor": "#26BDE2", "color": "#0F2942", "weight": 3.0, "dashArray": "4, 4", "fillOpacity": 0.70}
-
-def style_fn_gemeinden(feature):
-    return {"fillColor": "#338398", "color": "#0F2942", "weight": 1.3, "fillOpacity": 0.75}
-
-def highlight_fn_gemeinden(feature):
-    return {"fillColor": "#26BDE2", "color": "#0F2942", "weight": 3.5, "fillOpacity": 0.90}
-
 if geojson_gemeinden_bg and geojson_gemeinden_bg.get("features"):
     folium.GeoJson(geojson_gemeinden_bg, name="Gemeindegrenzen (Hintergrund)", style_function=style_fn_gemeinden_bg, interactive=False).add_to(m)
 if geojson_lv and geojson_lv.get("features"):
@@ -514,55 +562,6 @@ if geojson_indeland and geojson_indeland.get("features"):
     folium.GeoJson(geojson_indeland, name="Indeland", style_function=style_fn_gemeinden, highlight_function=highlight_fn_gemeinden, tooltip=create_tooltip()).add_to(m)
 if geojson_data and geojson_data["features"]:
     folium.GeoJson(geojson_data, name="Gemeinden", style_function=style_fn_gemeinden, highlight_function=highlight_fn_gemeinden, tooltip=create_tooltip()).add_to(m)
-
-# Automatische Zoom-Anpassung (Fit Bounds) für die Übersicht oder zentrierte Kommune
-if search_kommune != "(Übersicht)":
-    target_entry = next(
-        (v for v in data_by_match_key.values() if v.get("Kommune") == search_kommune),
-        None,
-    )
-    if target_entry:
-        target_key = str(target_entry["Row_Data"].get("AGS_MATCH", "")).strip()
-        all_features = (base_kreise.get("features", []) if base_kreise else []) + (geojson_data["features"] if geojson_data else []) + (geojson_indeland.get("features", []) if geojson_indeland else []) + (geojson_lv.get("features", []) if geojson_lv and geojson_lv.get("features") else [])
-        for feat in all_features:
-            if feat.get("properties", {}).get("MATCH_KEY") == target_key:
-                geom = feat.get("geometry", {})
-                coords = geom.get("coordinates", [])
-                if coords:
-                    poly_pts = coords[0] if geom.get("type") == "Polygon" else coords[0][0]
-                    avg_lat = sum(pt[1] for pt in poly_pts) / len(poly_pts)
-                    avg_lon = sum(pt[0] for pt in poly_pts) / len(poly_pts)
-                    m.location = [avg_lat, avg_lon]
-                    m.options['zoom'] = 11 if "kreis" not in str(target_entry.get("Typ", "")).lower() else 9
-                break
-else:
-    active_features = (geojson_data["features"] if geojson_data else []) + (geojson_kreise["features"] if geojson_kreise else [])
-    min_lat, max_lat = 90, -90
-    min_lon, max_lon = 180, -180
-    has_coords = False
-    
-    for feat in active_features:
-        geom = feat.get("geometry", {})
-        coords = geom.get("coordinates", [])
-        g_type = geom.get("type", "")
-        points = []
-        if g_type == "Polygon":
-            for ring in coords:
-                points.extend(ring)
-        elif g_type == "MultiPolygon":
-            for poly in coords:
-                for ring in poly:
-                    points.extend(ring)
-        for pt in points:
-            lon, lat = pt[0], pt[1]
-            if lat < min_lat: min_lat = lat
-            if lat > max_lat: max_lat = lat
-            if lon < min_lon: min_lon = lon
-            if lon > max_lon: max_lon = lon
-            has_coords = True
-            
-    if has_coords:
-        m.fit_bounds([[min_lat, min_lon], [max_lat, max_lon]])
 
 # ==============================================================================
 # 7. Responsives Layout (Ausfüllen der vollen Bildschirmhöhe via CSS flexbox)
@@ -623,6 +622,7 @@ with col_map:
         </div>
     """, unsafe_allow_html=True)
 
+    # Höhe auf 100% responsiv über den Viewport (vh) abgestimmt
     map_output = st_folium(
         m,
         width="100%",
