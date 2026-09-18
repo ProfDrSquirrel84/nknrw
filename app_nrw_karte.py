@@ -544,7 +544,7 @@ st.markdown("""
 
 st.markdown('<div class="logo-container">', unsafe_allow_html=True)
 if NKNRW_LOGO_PATH.is_file():
-    st.image(str(NKNRW_LOGO_PATH), width=400)
+    st.image(str(NKNRW_LOGO_PATH), width=600)
 else:
     try:
         st.image("https://raw.githubusercontent.com/<DEIN_GITHUB_USER>/<DEIN_REPO>/main/NKNRW_Logo.png", width=180)
