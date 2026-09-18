@@ -482,16 +482,38 @@ def create_tooltip():
         style=tooltip_style, localize=True, sticky=False,
     )
 
+# Style-Funktionen definiert
+def style_fn_gemeinden_bg(feature):
+    return {"fillColor": "transparent", "color": "#000000", "weight": 0.5, "fillOpacity": 0.0}
+
+def style_fn_lv(feature):
+    return {"fillColor": "transparent", "color": "#1e293b", "weight": 2.5, "dashArray": "6, 6", "fillOpacity": 0.0}
+
+def highlight_fn_lv(feature):
+    return {"fillColor": "transparent", "color": "#0F2942", "weight": 3.5, "dashArray": "6, 6", "fillOpacity": 0.0}
+
+def style_fn_kreise(feature):
+    return {"fillColor": "#338398", "color": "#475569", "weight": 2.5, "dashArray": "4, 4", "fillOpacity": 0.55}
+
+def highlight_fn_kreise(feature):
+    return {"fillColor": "#26BDE2", "color": "#0F2942", "weight": 3.0, "dashArray": "4, 4", "fillOpacity": 0.70}
+
+def style_fn_gemeinden(feature):
+    return {"fillColor": "#338398", "color": "#0F2942", "weight": 1.3, "fillOpacity": 0.75}
+
+def highlight_fn_gemeinden(feature):
+    return {"fillColor": "#26BDE2", "color": "#0F2942", "weight": 3.5, "fillOpacity": 0.90}
+
 if geojson_gemeinden_bg and geojson_gemeinden_bg.get("features"):
-    folium.GeoJson(geojson_gemeinden_bg, name="Gemeindegrenzen (Hintergrund)", style_function=style_fn_gemeinden_bg := lambda f: {"fillColor": "transparent", "color": "#000000", "weight": 0.5, "fillOpacity": 0.0}, interactive=False).add_to(m)
+    folium.GeoJson(geojson_gemeinden_bg, name="Gemeindegrenzen (Hintergrund)", style_function=style_fn_gemeinden_bg, interactive=False).add_to(m)
 if geojson_lv and geojson_lv.get("features"):
-    folium.GeoJson(geojson_lv, name="Landschaftsverband Rheinland", style_function=lambda f: {"fillColor": "transparent", "color": "#1e293b", "weight": 2.5, "dashArray": "6, 6", "fillOpacity": 0.0}, highlight_function=lambda f: {"fillColor": "transparent", "color": "#0F2942", "weight": 3.5, "dashArray": "6, 6", "fillOpacity": 0.0}, tooltip=create_tooltip()).add_to(m)
+    folium.GeoJson(geojson_lv, name="Landschaftsverband Rheinland", style_function=style_fn_lv, highlight_function=highlight_fn_lv, tooltip=create_tooltip()).add_to(m)
 if geojson_kreise and geojson_kreise["features"]:
-    folium.GeoJson(geojson_kreise, name="Landkreise", style_function=lambda f: {"fillColor": "#338398", "color": "#475569", "weight": 2.5, "dashArray": "4, 4", "fillOpacity": 0.55}, highlight_function=lambda f: {"fillColor": "#26BDE2", "color": "#0F2942", "weight": 3.0, "dashArray": "4, 4", "fillOpacity": 0.70}, tooltip=create_tooltip()).add_to(m)
+    folium.GeoJson(geojson_kreise, name="Landkreise", style_function=style_fn_kreise, highlight_function=highlight_fn_kreise, tooltip=create_tooltip()).add_to(m)
 if geojson_indeland and geojson_indeland.get("features"):
-    folium.GeoJson(geojson_indeland, name="Indeland", style_function=lambda f: {"fillColor": "#338398", "color": "#0F2942", "weight": 1.3, "fillOpacity": 0.75}, highlight_function=lambda f: {"fillColor": "#26BDE2", "color": "#0F2942", "weight": 3.5, "fillOpacity": 0.90}, tooltip=create_tooltip()).add_to(m)
+    folium.GeoJson(geojson_indeland, name="Indeland", style_function=style_fn_gemeinden, highlight_function=highlight_fn_gemeinden, tooltip=create_tooltip()).add_to(m)
 if geojson_data and geojson_data["features"]:
-    folium.GeoJson(geojson_data, name="Gemeinden", style_function=lambda f: {"fillColor": "#338398", "color": "#0F2942", "weight": 1.3, "fillOpacity": 0.75}, highlight_function=lambda f: {"fillColor": "#26BDE2", "color": "#0F2942", "weight": 3.5, "fillOpacity": 0.90}, tooltip=create_tooltip()).add_to(m)
+    folium.GeoJson(geojson_data, name="Gemeinden", style_function=style_fn_gemeinden, highlight_function=highlight_fn_gemeinden, tooltip=create_tooltip()).add_to(m)
 
 # Automatische Zoom-Anpassung (Fit Bounds) für die Übersicht oder zentrierte Kommune
 if search_kommune != "(Übersicht)":
@@ -514,7 +536,6 @@ if search_kommune != "(Übersicht)":
                     m.options['zoom'] = 11 if "kreis" not in str(target_entry.get("Typ", "")).lower() else 9
                 break
 else:
-    # Berechne die Bounding Box aller aktuell gefilterten Features, um perfekt darauf zu zoomen
     active_features = (geojson_data["features"] if geojson_data else []) + (geojson_kreise["features"] if geojson_kreise else [])
     min_lat, max_lat = 90, -90
     min_lon, max_lon = 180, -180
