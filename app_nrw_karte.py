@@ -17,9 +17,9 @@ GEOJSON_GEMEINDEN_BG = BASE_DIR / "nrw_gemeinden_bg.geojson"
 GEOJSON_INDELAND = BASE_DIR / "indeland.geojson"
 GEOJSON_LV = BASE_DIR / "landschaftsverband_rheinland.geojson"
 
-# Logo-Pfade (Lokal im Ordner oder via GitHub Raw URL)
-LAG_LOGO_PATH = BASE_DIR / "LAG_Logo.jpg"  # Bzw. URL oder Dateiname anpassen
-NKNRW_LOGO_PATH = BASE_DIR / "NKNRW_Logo.png"  # Bzw. URL oder Dateiname anpassen
+# Logo-Pfade (korrekte Endungen: .jpg für LAG, .png für NKNRW)
+LAG_LOGO_PATH = BASE_DIR / "LAG_Logo.jpg"
+NKNRW_LOGO_PATH = BASE_DIR / "NKNRW_Logo.png"
 
 GITHUB_KREISE_RAW_URL = "https://raw.githubusercontent.com/<DEIN_GITHUB_USER>/<DEIN_REPO>/main/nrw_kreise.geojson"
 GITHUB_GEMEINDEN_BG_RAW_URL = "https://raw.githubusercontent.com/<DEIN_GITHUB_USER>/<DEIN_REPO>/main/nrw_gemeinden_bg.geojson"
@@ -163,11 +163,10 @@ df_raw = load_data()
 # 2. Interaktive Auswahlfilter & LAG_Logo in der linken Sidebar
 # ==============================================================================
 if LAG_LOGO_PATH.is_file():
-    st.sidebar.image(str(LAG_LOGO_PATH), use_column_width=True)
+    st.sidebar.image(str(LAG_LOGO_PATH), use_container_width=True)
 else:
-    # Fallback falls direkt via URL eingebunden werden soll
     try:
-        st.sidebar.image("https://raw.githubusercontent.com/<DEIN_GITHUB_USER>/<DEIN_REPO>/main/LAG_Logo.png", use_column_width=True)
+        st.sidebar.image("https://raw.githubusercontent.com/<DEIN_GITHUB_USER>/<DEIN_REPO>/main/LAG_Logo.jpg", use_container_width=True)
     except Exception:
         pass
 
@@ -534,15 +533,13 @@ if geojson_data and geojson_data["features"]:
 # ==============================================================================
 # 7. NKNRW_Logo oben in der Mitte & Layout-Aufteilung (Karte links, Charts rechts)
 # ==============================================================================
-
-# NKNRW_Logo oben zentriert über dem Hauptbereich platzieren
 col_logo_left, col_logo_center, col_logo_right = st.columns([1, 2, 1])
 with col_logo_center:
     if NKNRW_LOGO_PATH.is_file():
-        st.image(str(NKNRW_LOGO_PATH), use_column_width=True)
+        st.image(str(NKNRW_LOGO_PATH), use_container_width=True)
     else:
         try:
-            st.image("https://raw.githubusercontent.com/<DEIN_GITHUB_USER>/<DEIN_REPO>/main/NKNRW_Logo.png", use_column_width=True)
+            st.image("https://raw.githubusercontent.com/<DEIN_GITHUB_USER>/<DEIN_REPO>/main/NKNRW_Logo.png", use_container_width=True)
         except Exception:
             st.markdown("<h2 style='text-align: center;'>NRW-Kommunen</h2>", unsafe_allow_html=True)
 
