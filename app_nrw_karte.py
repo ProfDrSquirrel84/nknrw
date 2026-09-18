@@ -541,7 +541,7 @@ if geojson_data and geojson_data["features"]:
     folium.GeoJson(geojson_data, name="Gemeinden", style_function=style_fn_gemeinden, highlight_function=highlight_fn_gemeinden, tooltip=create_tooltip()).add_to(m)
 
 # ==============================================================================
-# 7. Layout-Aufteilung (Karte links, Charts als Expander rechts)
+# 7. Layout-Aufteilung (Karte links, Charts als Expander rechts - standardmäßig zu)
 # ==============================================================================
 col_map, col_charts = st.columns([1.3, 1])
 
@@ -622,8 +622,8 @@ with col_charts:
     ]
 
     for col_name, title in charts_config:
-        # Jedes Diagramm wird als Expander umgesetzt (standardmäßig geöffnet oder geschlossen via expanded=True/False)
-        with st.expander(f"📊 {title}", expanded=True):
+        # expanded=False sorgt dafür, dass die Expander standardmäßig eingeklappt starten
+        with st.expander(f"📊 {title}", expanded=False):
             target_field_map = {
                 "Angebot": "Info_Angebot",
             }
