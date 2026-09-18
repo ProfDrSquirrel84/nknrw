@@ -175,9 +175,9 @@ st.sidebar.markdown("### Filter & Steuerung")
 status_filter = st.sidebar.radio(
     "Datenansicht:",
     options=[
-        "Alle Einheiten (Bewerber & Historie)",
-        "Nur NKNRW-Bewerber (Teilnahme NKNRW = 1)",
-        "Nur Projekthistorie (Projekthistorie id = 1)"
+        "Alle Einheiten",
+        "Nur NKNRW-Bewerber",
+        "Nur ehemalige Projektkommunen"
     ],
     index=0,
     key="rb_status_filter"
