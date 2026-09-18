@@ -23,7 +23,7 @@ GITHUB_INDELAND_RAW_URL = "https://raw.githubusercontent.com/<DEIN_GITHUB_USER>/
 GITHUB_LV_RAW_URL = "https://raw.githubusercontent.com/<DEIN_GITHUB_USER>/<DEIN_REPO>/main/landschaftsverband_rheinland.geojson"
 
 # ==============================================================================
-# Custom CSS für Vollbildkarte & Live-Übersicht (oben rechts)
+# Custom CSS für optimierte Platznutzung
 # ==============================================================================
 st.markdown("""
     <style>
@@ -44,11 +44,11 @@ st.markdown("""
         right: 20px;
         z-index: 99999;
         background: rgba(255, 255, 255, 0.96);
-        padding: 16px 20px;
+        padding: 14px 18px;
         border-radius: 10px;
         box-shadow: 0 4px 20px rgba(0,0,0,0.25);
         border: 1px solid #cbd5e1;
-        width: 300px;
+        width: 280px;
         pointer-events: auto;
     }
     </style>
@@ -156,23 +156,33 @@ def load_data():
 df_raw = load_data()
 
 # ==============================================================================
-# 2. Interaktive Auswahlfilter in der Sidebar
+# 2. Interaktive Auswahlfilter in der linken Sidebar
 # ==============================================================================
 st.sidebar.markdown("### 🎯 Filter & Steuerung")
 
 status_filter = st.sidebar.radio(
     "Datenansicht:",
-    options=["Alle Einheiten (Bewerber & Historie)", "Nur NKNRW-Bewerber (Teilnahme NKNRW = 1)", "Nur Projekthistorie (Projekthistorie id = 1)"],
+    options=[
+        "Alle Einheiten (Bewerber & Historie)",
+        "Nur NKNRW-Bewerber (Teilnahme NKNRW = 1)",
+        "Nur Projekthistorie (Projekthistorie id = 1)"
+    ],
     index=0,
     key="rb_status_filter"
 )
 
-all_available_units = sorted(list(df_raw["Kommune"].dropna().unique()))
+df_filtered_for_select = df_raw.copy()
+if status_filter == "Nur NKNRW-Bewerber (Teilnahme NKNRW = 1)":
+    df_filtered_for_select = df_filtered_for_select[df_filtered_for_select["Teilnahme NKNRW"].astype(str).str.strip() == "1"]
+elif status_filter == "Nur Projekthistorie (Projekthistorie id = 1)":
+    df_filtered_for_select = df_filtered_for_select[df_filtered_for_select["Projekthistorie id"].astype(str).str.strip() == "1"]
+
+all_available_units = sorted(list(df_filtered_for_select["Kommune"].dropna().unique()))
 selected_units = st.sidebar.multiselect(
     "Kommunen / Kreise auswählen:",
     options=all_available_units,
     default=[],
-    help="Leer = alle Einheiten anzeigen.",
+    help="Leer = alle Einheiten der aktuellen Ansicht anzeigen.",
     key="ms_selected_units",
 )
 
@@ -194,12 +204,7 @@ selected_offers = st.sidebar.multiselect(
     key="ms_selected_offers",
 )
 
-df = df_raw.copy()
-
-if status_filter == "Nur NKNRW-Bewerber (Teilnahme NKNRW = 1)":
-    df = df[df["Teilnahme NKNRW"].astype(str).str.strip() == "1"]
-elif status_filter == "Nur Projekthistorie (Projekthistorie id = 1)":
-    df = df[df["Projekthistorie id"].astype(str).str.strip() == "1"]
+df = df_filtered_for_select.copy()
 
 if selected_units:
     df = df[df["Kommune"].isin(selected_units)]
@@ -295,7 +300,7 @@ for _, row in df.iterrows():
 recorded_keys_set = set(data_by_match_key.keys())
 
 # ==============================================================================
-# 4. GeoJSONs laden & filtern (inkl. Indeland & Landschaftsverband)
+# 4. GeoJSONs laden & filtern
 # ==============================================================================
 @st.cache_data
 def load_base_geojsons():
@@ -351,7 +356,7 @@ geojson_indeland = filter_features(base_indeland, recorded_keys_set) if base_ind
 geojson_lv = filter_features(base_lv, recorded_keys_set) if base_lv else None
 
 # ==============================================================================
-# 5. GeoJSON-Properties anreichern
+# 5. GeoJSON-Properties anreichern & Suchfunktion
 # ==============================================================================
 def enrich_features(features, layer_type="gemeinde"):
     if not features:
@@ -395,7 +400,6 @@ if geojson_kreise:
 if geojson_lv and geojson_lv.get("features"):
     enrich_features(geojson_lv["features"], layer_type="lv")
 
-# Such- und Zentrierfunktion
 current_kommune_list = sorted(
     list(dict.fromkeys(
         v["Kommune"] for v in data_by_match_key.values() if v.get("Kommune")
@@ -432,7 +436,7 @@ if search_kommune != "(Übersicht)":
                 break
 
 # ==============================================================================
-# 6. Styling & Farbzuweisung exakt nach Vorgabe
+# 6. Styling & Karten-Setup
 # ==============================================================================
 def get_kommune_color(target_info):
     teilnahme = str(target_info.get("Teilnahme NKNRW", "0")).strip()
@@ -442,103 +446,45 @@ def get_kommune_color(target_info):
     has_history = (historie == "1")
     
     if has_history and is_applicant:
-        return "#c00d0d"  # Bewerber & Historie (Rot)
+        return "#c00d0d"
     elif is_applicant:
-        return "#338398"  # Aktive NKNRW-Bewerber (Blau)
+        return "#338398"
     elif has_history:
-        return "#6f6f6e"  # Nur Projekthistorie (Grau)
+        return "#6f6f6e"
     else:
-        return "#00689D"  # Fallback
+        return "#00689D"
 
 def style_fn_gemeinden_bg(feature):
-    return {
-        "fillColor": "transparent",
-        "color": "#000000",
-        "weight": 0.5,
-        "fillOpacity": 0.0,
-    }
+    return {"fillColor": "transparent", "color": "#000000", "weight": 0.5, "fillOpacity": 0.0}
 
 def style_fn_lv(feature):
-    return {
-        "fillColor": "transparent",
-        "color": "#1e293b",
-        "weight": 2.5,
-        "dashArray": "6, 6",
-        "fillOpacity": 0.0,
-    }
+    return {"fillColor": "transparent", "color": "#1e293b", "weight": 2.5, "dashArray": "6, 6", "fillOpacity": 0.0}
 
 def highlight_fn_lv(feature):
-    return {
-        "fillColor": "transparent",
-        "color": "#0F2942",
-        "weight": 3.5,
-        "dashArray": "6, 6",
-        "fillOpacity": 0.0,
-    }
+    return {"fillColor": "transparent", "color": "#0F2942", "weight": 3.5, "dashArray": "6, 6", "fillOpacity": 0.0}
 
 def style_fn_kreise(feature):
     props = feature.get("properties", {})
     key = props.get("MATCH_KEY")
     target_info = data_by_match_key.get(key, {})
-    is_highlighted = (
-        search_kommune != "(Übersicht)"
-        and target_info
-        and target_info.get("Kommune") == search_kommune
-    )
-    
+    is_highlighted = (search_kommune != "(Übersicht)" and target_info and target_info.get("Kommune") == search_kommune)
     fill_color = get_kommune_color(target_info)
-    weight = 2.5
-    if is_highlighted:
-        weight = 3.5
-
-    return {
-        "fillColor": fill_color,
-        "color": "#FFD700" if is_highlighted else "#475569",
-        "weight": weight,
-        "dashArray": "4, 4",
-        "fillOpacity": 0.55,
-    }
+    return {"fillColor": fill_color, "color": "#FFD700" if is_highlighted else "#475569", "weight": 3.5 if is_highlighted else 2.5, "dashArray": "4, 4", "fillOpacity": 0.55}
 
 def highlight_fn_kreise(feature):
-    return {
-        "fillColor": "#26BDE2",
-        "color": "#0F2942",
-        "weight": 3.0,
-        "dashArray": "4, 4",
-        "fillOpacity": 0.70,
-    }
+    return {"fillColor": "#26BDE2", "color": "#0F2942", "weight": 3.0, "dashArray": "4, 4", "fillOpacity": 0.70}
 
 def style_fn_gemeinden(feature):
     props = feature.get("properties", {})
     key = props.get("MATCH_KEY")
     target_info = data_by_match_key.get(key, {})
-    is_highlighted = (
-        search_kommune != "(Übersicht)"
-        and target_info
-        and target_info.get("Kommune") == search_kommune
-    )
-    
+    is_highlighted = (search_kommune != "(Übersicht)" and target_info and target_info.get("Kommune") == search_kommune)
     fill_color = get_kommune_color(target_info)
     is_multi = target_info.get("Is_Multi", False)
-    weight = 2.8 if is_multi else 1.3
-    if is_highlighted:
-        weight = 4.5
-
-    return {
-        "fillColor": fill_color,
-        "color": "#FFD700" if is_highlighted else "#0F2942",
-        "weight": weight,
-        "fillOpacity": 0.75,
-    }
+    return {"fillColor": fill_color, "color": "#FFD700" if is_highlighted else "#0F2942", "weight": 4.5 if is_highlighted else (2.8 if is_multi else 1.3), "fillOpacity": 0.75}
 
 def highlight_fn_gemeinden(feature):
-    props = feature.get("properties", {})
-    return {
-        "fillColor": "#26BDE2",
-        "color": "#0F2942",
-        "weight": 3.5,
-        "fillOpacity": 0.90,
-    }
+    return {"fillColor": "#26BDE2", "color": "#0F2942", "weight": 3.5, "fillOpacity": 0.90}
 
 m = folium.Map(location=center_loc, zoom_start=zoom_lvl, tiles="OpenStreetMap")
 
@@ -556,337 +502,182 @@ tooltip_style = """
 
 def create_tooltip():
     return folium.GeoJsonTooltip(
-        fields=[
-            "GEN",
-            "Info_Typ",
-            "Info_RB",
-            "Info_Bevoelkerung",
-            "Info_Klasse",
-            "Projekthistorie_Name",
-            "Info_Angebot",
-        ],
-        aliases=[
-            "Kommune / Kreis:",
-            "Typ:",
-            "Regierungsbezirk:",
-            "Bevölkerung:",
-            "Größenklasse:",
-            "Projekthistorie:",
-            "Angebot(e):",
-        ],
-        style=tooltip_style,
-        localize=True,
-        sticky=False,
+        fields=["GEN", "Info_Typ", "Info_RB", "Info_Bevoelkerung", "Info_Klasse", "Projekthistorie_Name", "Info_Angebot"],
+        aliases=["Kommune / Kreis:", "Typ:", "Regierungsbezirk:", "Bevölkerung:", "Größenklasse:", "Projekthistorie:", "Angebot(e):"],
+        style=tooltip_style, localize=True, sticky=False,
     )
 
-# 1. ALLERERSTER LAYER: Statische Gemeindegrenzen im Hintergrund (ohne Interaktion)
 if geojson_gemeinden_bg and geojson_gemeinden_bg.get("features"):
-    folium.GeoJson(
-        geojson_gemeinden_bg,
-        name="Gemeindegrenzen (Hintergrund)",
-        style_function=style_fn_gemeinden_bg,
-        interactive=False,
-    ).add_to(m)
-
-# 2. ZWEITER LAYER: Landschaftsverband (Unterste Ebene, gestrichelte Outline, transparent)
+    folium.GeoJson(geojson_gemeinden_bg, name="Gemeindegrenzen (Hintergrund)", style_function=style_fn_gemeinden_bg, interactive=False).add_to(m)
 if geojson_lv and geojson_lv.get("features"):
-    folium.GeoJson(
-        geojson_lv,
-        name="Landschaftsverband Rheinland",
-        style_function=style_fn_lv,
-        highlight_function=highlight_fn_lv,
-        tooltip=create_tooltip(),
-    ).add_to(m)
-
-# 3. DRITTER LAYER: Aktive Landkreise aus der Datentabelle
+    folium.GeoJson(geojson_lv, name="Landschaftsverband Rheinland", style_function=style_fn_lv, highlight_function=highlight_fn_lv, tooltip=create_tooltip()).add_to(m)
 if geojson_kreise and geojson_kreise["features"]:
-    folium.GeoJson(
-        geojson_kreise,
-        name="Landkreise",
-        style_function=style_fn_kreise,
-        highlight_function=highlight_fn_kreise,
-        tooltip=create_tooltip(),
-    ).add_to(m)
-
-# 4. VIERTER LAYER: Indeland Region
+    folium.GeoJson(geojson_kreise, name="Landkreise", style_function=style_fn_kreise, highlight_function=highlight_fn_kreise, tooltip=create_tooltip()).add_to(m)
 if geojson_indeland and geojson_indeland.get("features"):
-    folium.GeoJson(
-        geojson_indeland,
-        name="Indeland",
-        style_function=style_fn_gemeinden,
-        highlight_function=highlight_fn_gemeinden,
-        tooltip=create_tooltip(),
-    ).add_to(m)
-
-# 5. FÜNFTER LAYER: Aktive Gemeinden (Oberster Layer)
+    folium.GeoJson(geojson_indeland, name="Indeland", style_function=style_fn_gemeinden, highlight_function=highlight_fn_gemeinden, tooltip=create_tooltip()).add_to(m)
 if geojson_data and geojson_data["features"]:
-    folium.GeoJson(
-        geojson_data,
-        name="Gemeinden",
-        style_function=style_fn_gemeinden,
-        highlight_function=highlight_fn_gemeinden,
-        tooltip=create_tooltip(),
-    ).add_to(m)
+    folium.GeoJson(geojson_data, name="Gemeinden", style_function=style_fn_gemeinden, highlight_function=highlight_fn_gemeinden, tooltip=create_tooltip()).add_to(m)
 
 # ==============================================================================
-# 7. Kompakter Titel, Karte mit integrierter Live-Übersicht & Legende
+# 7. Layout-Aufteilung in zwei Spalten (Links: Karte & Live-Übersicht | Rechts: Sidebar-Diagramme)
 # ==============================================================================
 st.markdown("### 🗺️ NRW-Kommunen: Übersicht & Beteiligung")
 
-st.markdown('<div class="map-container">', unsafe_allow_html=True)
+col_map, col_charts = st.columns([1.3, 1])
 
-active_filters = []
-if selected_units:
-    active_filters.append(f"{len(selected_units)} Einheiten")
-if selected_offers:
-    active_filters.append(f"{len(selected_offers)} Angebote")
-filter_label = f"Aktiv: {', '.join(active_filters)}" if active_filters else "(Alle Einheiten)"
+with col_map:
+    st.markdown('<div class="map-container">', unsafe_allow_html=True)
 
-applicants_count = sum(1 for v in data_by_match_key.values() if v.get("Teilnahme NKNRW") == "1")
+    active_filters = []
+    if selected_units:
+        active_filters.append(f"{len(selected_units)} Einheiten")
+    if selected_offers:
+        active_filters.append(f"{len(selected_offers)} Angebote")
+    filter_label = f"Aktiv: {', '.join(active_filters)}" if active_filters else "(Alle Einheiten)"
 
-if "Teilnahme NKNRW" in df.columns and "Bevoelkerung_Num" in df.columns:
-    unique_pop = (
-        df[df["Teilnahme NKNRW"].astype(str).str.strip() == "1"].drop_duplicates(subset=["AGS_MATCH"])["Bevoelkerung_Num"].dropna().sum()
+    applicants_count = sum(1 for v in data_by_match_key.values() if v.get("Teilnahme NKNRW") == "1")
+
+    if "Teilnahme NKNRW" in df.columns and "Bevoelkerung_Num" in df.columns:
+        unique_pop = (
+            df[df["Teilnahme NKNRW"].astype(str).str.strip() == "1"].drop_duplicates(subset=["AGS_MATCH"])["Bevoelkerung_Num"].dropna().sum()
+        )
+    else:
+        unique_pop = 0
+
+    pop_str = f"{int(unique_pop):,}".replace(",", ".") if unique_pop > 0 else "-"
+
+    st.markdown(f"""
+        <div class="floating-overlay-top-right">
+            <b style="font-size:13px; color:#0F2942;">📊 Live-Übersicht</b><br>
+            <span style="font-size:11px; color:#64748B;">{filter_label}</span>
+            <hr style="margin: 4px 0; border-color:#cbd5e1;">
+            <div style="display:flex; justify-content:space-between; font-size:12px;">
+                <span>NKNRW-Bewerber: <b>{applicants_count}</b></span>
+                <span>Anträge: <b>{total_applications_count}</b></span>
+            </div>
+            <div style="font-size:12px; margin-top:3px;">
+                Erfasste Einwohner (Bewerber): <b>{pop_str}</b>
+            </div>
+            <hr style="margin: 6px 0; border-color:#cbd5e1;">
+            <b style="font-size:11px; color:#0F2942;">🎨 Legende</b>
+            <div style="display: flex; align-items: center; margin-top: 4px; font-size: 11px;">
+                <div style="width: 10px; height: 10px; background: #338398; border-radius: 2px; margin-right: 6px; flex-shrink: 0;"></div>
+                <span>NKNRW-Bewerber</span>
+            </div>
+            <div style="display: flex; align-items: center; margin-top: 3px; font-size: 11px;">
+                <div style="width: 10px; height: 10px; background: #6f6f6e; border-radius: 2px; margin-right: 6px; flex-shrink: 0;"></div>
+                <span>Nur Projekthistorie</span>
+            </div>
+            <div style="display: flex; align-items: center; margin-top: 3px; font-size: 11px;">
+                <div style="width: 10px; height: 10px; background: #c00d0d; border-radius: 2px; margin-right: 6px; flex-shrink: 0;"></div>
+                <span>Bewerber & Historie</span>
+            </div>
+        </div>
+    """, unsafe_allow_html=True)
+
+    map_output = st_folium(
+        m,
+        width="100%",
+        height=680,
+        returned_objects=["last_active_drawing"],
     )
-else:
-    unique_pop = 0
+    st.markdown('</div>', unsafe_allow_html=True)
 
-pop_str = f"{int(unique_pop):,}".replace(",", ".") if unique_pop > 0 else "-"
+with col_charts:
+    st.markdown("#### 📊 Auswertungen")
 
-st.markdown(f"""
-    <div class="floating-overlay-top-right">
-        <b style="font-size:14px; color:#0F2942;">📊 Live-Übersicht</b><br>
-        <span style="font-size:11px; color:#64748B;">{filter_label}</span>
-        <hr style="margin: 4px 0; border-color:#cbd5e1;">
-        <div style="display:flex; justify-content:space-between; font-size:12px;">
-            <span>NKNRW-Bewerber: <b>{applicants_count}</b></span>
-            <span>Anträge: <b>{total_applications_count}</b></span>
-        </div>
-        <div style="font-size:12px; margin-top:3px;">
-            Erfasste Einwohner (Bewerber): <b>{pop_str}</b>
-        </div>
-        <hr style="margin: 6px 0; border-color:#cbd5e1;">
-        <b style="font-size:11px; color:#0F2942;">🎨 Legende</b>
-        <div style="display: flex; align-items: center; margin-top: 4px; font-size: 11px;">
-            <div style="width: 10px; height: 10px; background: #338398; border-radius: 2px; margin-right: 6px; flex-shrink: 0;"></div>
-            <span>NKNRW-Bewerber</span>
-        </div>
-        <div style="display: flex; align-items: center; margin-top: 3px; font-size: 11px;">
-            <div style="width: 10px; height: 10px; background: #6f6f6e; border-radius: 2px; margin-right: 6px; flex-shrink: 0;"></div>
-            <span>Nur Projekthistorie</span>
-        </div>
-        <div style="display: flex; align-items: center; margin-top: 3px; font-size: 11px;">
-            <div style="width: 10px; height: 10px; background: #c00d0d; border-radius: 2px; margin-right: 6px; flex-shrink: 0;"></div>
-            <span>Bewerber & Historie</span>
-        </div>
-    </div>
-""", unsafe_allow_html=True)
-
-map_output = st_folium(
-    m,
-    width="100%",
-    height=720,
-    returned_objects=["last_active_drawing"],
-)
-st.markdown('</div>', unsafe_allow_html=True)
-
-# ==============================================================================
-# 8. Factsheet bei Klick auf ein Polygon (inkl. Projekthistorie)
-# ==============================================================================
-clicked_feature = map_output.get("last_active_drawing") if map_output else None
-if clicked_feature:
-    clicked_props = clicked_feature.get("properties", {})
-    key = clicked_props.get("MATCH_KEY")
-
-    if key and key in data_by_match_key:
-        details = data_by_match_key[key]
-        
-        teilnahme_txt = "Ja" if details.get('Teilnahme NKNRW') == "1" else "Nein"
-
-        st.info(f"### 📍 Factsheet: {details.get('Kommune')} | NKNRW-Teilnahme: **{teilnahme_txt}**")
-        c1, c2, c3, c4 = st.columns(4)
-        with c1:
-            st.markdown(f"<span style='font-size: 13px;'><b>Typ:</b> {details.get('Typ', '-')}</span>", unsafe_allow_html=True)
-            st.markdown(f"<span style='font-size: 13px;'><b>Regierungsbezirk:</b> {details.get('Regierungsbezirk', '-')}</span>", unsafe_allow_html=True)
-            st.markdown(f"<span style='font-size: 13px;'><b>Kreis:</b> {details.get('Kreis', '-')}</span>", unsafe_allow_html=True)
-        with c2:
-            st.markdown(f"<span style='font-size: 13px;'><b>Bevölkerung:</b> {details.get('Bevölkerung', '-')}</span>", unsafe_allow_html=True)
-            st.markdown(f"<span style='font-size: 13px;'><b>Größenklasse:</b> {details.get('Gemeindegrößenklasse', '-')}</span>", unsafe_allow_html=True)
-            st.markdown(f"<span style='font-size: 13px;'><b>Partei:</b> {details.get('Partei', '-')}</span>", unsafe_allow_html=True)
-        with c3:
-            st.markdown(f"<span style='font-size: 13px;'><b>Zentralörtlich:</b> {details.get('Zentralörtliche Einstufung', '-')}</span>", unsafe_allow_html=True)
-            st.markdown(f"<span style='font-size: 13px;'><b>Beschluss NKNRW:</b> {details.get('Beschluss NKNRW', '-')}</span>", unsafe_allow_html=True)
-            st.markdown(f"<span style='font-size: 13px;'><b>Vorerfahrung:</b> {details.get('Vorerfahrung', '-')}</span>", unsafe_allow_html=True)
-        with c4:
-            st.markdown(f"<span style='font-size: 13px;'><b>Projekthistorie:</b></span>", unsafe_allow_html=True)
-            hist_name = details.get('Projekthistorie_Name', '-')
-            if hist_name and hist_name != "-":
-                for proj in hist_name.split(";"):
-                    st.markdown(f"<span style='font-size: 11px;'>• {proj.strip()}</span>", unsafe_allow_html=True)
-            else:
-                st.markdown("<span style='font-size: 11px;'>Keine frühere Historie</span>", unsafe_allow_html=True)
-
-# ==============================================================================
-# 9. Diagramme & Interaktiver Zeitplan in Tabs unterhalb der Karte
-# ==============================================================================
-st.markdown("---")
-st.subheader("📊 Auswertungen & Zeitplan im Überblick")
-
-sorting_orders = {
-    "Gemeindegrößenklasse": [
-        "Landgemeinde",
-        "Kleine Kleinstadt",
-        "Größere Kleinstadt",
-        "Mittelstadt",
-        "Großstadt",       
-    ],
-    "Vorerfahrung": [
-        "Beginner",
-        "First Stepper",
-        "Performer",
-        "Professionals",
-    ],
-}
-
-tab_content_config = {
-    "Inhaltliche Auswertungen": [
-        ("Angebot", "Angebot"),
-        ("Gemeindegrößenklasse", "Gemeindegrößenklassen"),
-    ],
-    "Organisatorisches & Status": [
-        ("Beschluss NKNRW", "Beschluss NKNRW"),
-        ("Vorerfahrung", "Vorerfahrung"),
-    ],
-    "🗓️ Zeitplan & Laufzeiten": [],
-}
-
-tabs = st.tabs(list(tab_content_config.keys()))
-
-for tab_idx, (tab_name, configs) in enumerate(list(tab_content_config.items())[:2]):
-    with tabs[tab_idx]:
-        cols = st.columns(len(configs) if len(configs) > 0 else 1)
-        for idx, (col_name, title) in enumerate(configs):
-            if idx < len(cols):
-                with cols[idx]:
-                    st.markdown(f"<div style='font-size: 14px; font-weight: 600; text-align: center; margin-bottom: 5px;'>{title}</div>", unsafe_allow_html=True)
-                    
-                    target_field_map = {
-                        "Angebot": "Info_Angebot",
-                    }
-                    lookup_key = target_field_map.get(col_name, col_name)
-                    
-                    extracted_values = []
-                    for item in data_by_match_key.values():
-                        include_item = False
-                        if status_filter == "Alle Einheiten (Bewerber & Historie)":
-                            include_item = True
-                        elif status_filter == "Nur NKNRW-Bewerber (Teilnahme NKNRW = 1)":
-                            include_item = (item.get("Teilnahme NKNRW") == "1")
-                        elif status_filter == "Nur Projekthistorie (Projekthistorie id = 1)":
-                            include_item = (str(item.get("Projekthistorie id")).strip() == "1")
-
-                        if include_item:
-                            if lookup_key == "Info_Angebot":
-                                val_str = item.get(lookup_key, "-")
-                                if val_str and val_str != "-":
-                                    parts = [p.strip() for p in val_str.replace("/", "|").split("|") if p.strip() and p.strip() != "-"]
-                                    extracted_values.extend(parts)
-                            else:
-                                val_str = item.get(col_name, "-")
-                                if val_str and val_str != "-":
-                                    parts = [p.strip() for p in val_str.split(";") if p.strip() and p.strip() != "-"]
-                                    extracted_values.extend(parts)
-
-                    if extracted_values:
-                        series_split = pd.Series(extracted_values)
-                        counts = series_split.value_counts().reset_index()
-                        counts.columns = [col_name, "Anzahl"]
-
-                        if col_name in sorting_orders:
-                            custom_order = sorting_orders[col_name]
-                            counts[col_name] = pd.Categorical(counts[col_name], categories=custom_order, ordered=True)
-                            counts = counts.sort_values(by=col_name, ascending=False).dropna(subset=[col_name])
-                        else:
-                            counts = counts.sort_values(by="Anzahl", ascending=True)
-
-                        fig = px.bar(
-                            counts,
-                            x="Anzahl",
-                            y=col_name,
-                            orientation="h",
-                            text="Anzahl",
-                            color=col_name,
-                            color_discrete_sequence=px.colors.qualitative.Bold,
-                        )
-                        fig.update_traces(textposition="outside")
-                        fig.update_layout(
-                            showlegend=False,
-                            height=320,
-                            margin=dict(l=0, r=30, t=5, b=5),
-                            xaxis_title="",
-                            yaxis_title="",
-                            xaxis=dict(showticklabels=False, showgrid=False),
-                            yaxis=dict(tickfont=dict(size=11)),
-                        )
-                        st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
-                    else:
-                        st.info("Keine Daten")
-
-with tabs[2]:
-    st.markdown("### 🗓️ Projekt-Zeitplan & Laufzeiten")
-    st.markdown("Hier werden die Starttermine mit den jeweiligen Projektlaufzeiten kombiniert und als Gantt-Diagramm dargestellt.")
-
-    schedule_rows = []
-    duration_map = {
-        "Vollständige Implementierung der Prozesskette": 33,
-        "Entwicklung eines Nachhaltigkeitsberichts": 6,
-        "Fortschreibung einer bestehenden Nachhaltigkeitsstrategie": 12,
-        "Entwicklung einer Nachhaltigkeitsstrategie": 12,
-        "Entwicklung eines Nachhaltigkeitshaushalts": 12,
+    sorting_orders = {
+        "Gemeindegrößenklasse": [
+            "Landgemeinde",
+            "Kleine Kleinstadt",
+            "Größere Kleinstadt",
+            "Mittelstadt",
+            "Großstadt",       
+        ],
+        "Vorerfahrung": [
+            "Beginner",
+            "First Stepper",
+            "Performer",
+            "Professionals",
+        ],
     }
 
-    for item in data_by_match_key.values():
-        if item.get("Teilnahme NKNRW") == "1":
-            kommune = item.get("Kommune")
-            pairs = item.get("Angebote_Paare", [])
-            for p in pairs:
-                angebot = p.get("angebot")
-                start_str = p.get("start").replace(" (alternativ)", "").strip()
-                
-                if len(start_str) >= 7:
-                    try:
-                        start_date = pd.to_datetime(start_str[:7], format="%Y-%m")
-                        months = duration_map.get(angebot, 12)
-                        end_date = start_date + pd.DateOffset(months=months)
-                        
-                        schedule_rows.append({
-                            "Kommune": kommune,
-                            "Angebot": angebot,
-                            "Start": start_date,
-                            "Ende": end_date,
-                            "Laufzeit (Monate)": months
-                        })
-                    except Exception:
-                        pass
+    tab_content_config = {
+        "Inhaltliche Auswertungen": [
+            ("Angebot", "Angebot"),
+            ("Gemeindegrößenklasse", "Gemeindegrößenklassen"),
+        ],
+        "Organisatorisches & Status": [
+            ("Beschluss NKNRW", "Beschluss NKNRW"),
+            ("Vorerfahrung", "Vorerfahrung"),
+        ],
+    }
 
-    if schedule_rows:
-        sched_df = pd.DataFrame(schedule_rows)
-        
-        st.markdown("#### 📝 Starttermine anpassen")
-        edited_sched = st.data_editor(sched_df, use_container_width=True, key="gantt_editor")
-        
-        st.markdown("#### 📈 Visueller Projekt-Zeitstrahl (Gantt)")
-        fig_gantt = px.timeline(
-            edited_sched,
-            x_start="Start",
-            x_end="Ende",
-            y="Kommune",
-            color="Angebot",
-            hover_data=["Laufzeit (Monate)"],
-            title="Projektlaufzeiten nach Kommune und Angebot"
-        )
-        fig_gantt.update_yaxes(autorange="reversed")
-        fig_gantt.update_layout(height=500, margin=dict(l=20, r=20, t=40, b=20))
-        st.plotly_chart(fig_gantt, use_container_width=True)
-    else:
-        st.info("Keine gültigen Starttermine für den Zeitplan gefunden.")
+    tabs = st.tabs(list(tab_content_config.keys()))
+
+    for tab_idx, (tab_name, configs) in enumerate(tab_content_config.items()):
+        with tabs[tab_idx]:
+            for col_name, title in configs:
+                st.markdown(f"<div style='font-size: 13px; font-weight: 600; text-align: center; margin-bottom: 2px;'>{title}</div>", unsafe_allow_html=True)
+                
+                target_field_map = {
+                    "Angebot": "Info_Angebot",
+                }
+                lookup_key = target_field_map.get(col_name, col_name)
+                
+                extracted_values = []
+                for item in data_by_match_key.values():
+                    include_item = False
+                    if status_filter == "Alle Einheiten (Bewerber & Historie)":
+                        include_item = True
+                    elif status_filter == "Nur NKNRW-Bewerber (Teilnahme NKNRW = 1)":
+                        include_item = (item.get("Teilnahme NKNRW") == "1")
+                    elif status_filter == "Nur Projekthistorie (Projekthistorie id = 1)":
+                        include_item = (str(item.get("Projekthistorie id")).strip() == "1")
+
+                    if include_item:
+                        if lookup_key == "Info_Angebot":
+                            val_str = item.get(lookup_key, "-")
+                            if val_str and val_str != "-":
+                                parts = [p.strip() for p in val_str.replace("/", "|").split("|") if p.strip() and p.strip() != "-"]
+                                extracted_values.extend(parts)
+                        else:
+                            val_str = item.get(col_name, "-")
+                            if val_str and val_str != "-":
+                                parts = [p.strip() for p in val_str.split(";") if p.strip() and p.strip() != "-"]
+                                extracted_values.extend(parts)
+
+                if extracted_values:
+                    series_split = pd.Series(extracted_values)
+                    counts = series_split.value_counts().reset_index()
+                    counts.columns = [col_name, "Anzahl"]
+
+                    if col_name in sorting_orders:
+                        custom_order = sorting_orders[col_name]
+                        counts[col_name] = pd.Categorical(counts[col_name], categories=custom_order, ordered=True)
+                        counts = counts.sort_values(by=col_name, ascending=False).dropna(subset=[col_name])
+                    else:
+                        counts = counts.sort_values(by="Anzahl", ascending=True)
+
+                    fig = px.bar(
+                        counts,
+                        x="Anzahl",
+                        y=col_name,
+                        orientation="h",
+                        text="Anzahl",
+                        color=col_name,
+                        color_discrete_sequence=px.colors.qualitative.Bold,
+                    )
+                    fig.update_traces(textposition="outside")
+                    fig.update_layout(
+                        showlegend=False,
+                        height=260,
+                        margin=dict(l=0, r=25, t=0, b=0),
+                        xaxis_title="",
+                        yaxis_title="",
+                        xaxis=dict(showticklabels=False, showgrid=False),
+                        yaxis=dict(tickfont=dict(size=10)),
+                    )
+                    st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
+                else:
+                    st.info("Keine Daten")
