@@ -18,7 +18,7 @@ GEOJSON_INDELAND = BASE_DIR / "indeland.geojson"
 GEOJSON_LV = BASE_DIR / "landschaftsverband_rheinland.geojson"
 
 # Logo-Pfade (Lokal im Ordner oder via GitHub Raw URL)
-LAG_LOGO_PATH = BASE_DIR / "LAG_Logo.png"  # Bzw. URL oder Dateiname anpassen
+LAG_LOGO_PATH = BASE_DIR / "LAG_Logo.jpg"  # Bzw. URL oder Dateiname anpassen
 NKNRW_LOGO_PATH = BASE_DIR / "NKNRW_Logo.png"  # Bzw. URL oder Dateiname anpassen
 
 GITHUB_KREISE_RAW_URL = "https://raw.githubusercontent.com/<DEIN_GITHUB_USER>/<DEIN_REPO>/main/nrw_kreise.geojson"
