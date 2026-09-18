@@ -531,17 +531,15 @@ if geojson_data and geojson_data["features"]:
     folium.GeoJson(geojson_data, name="Gemeinden", style_function=style_fn_gemeinden, highlight_function=highlight_fn_gemeinden, tooltip=create_tooltip()).add_to(m)
 
 # ==============================================================================
-# 7. NKNRW_Logo oben in der Mitte & Layout-Aufteilung (Karte links, Charts rechts)
+# 7. NKNRW_Logo linksbündig (verkleinert) & Layout-Aufteilung (Karte links, Charts rechts)
 # ==============================================================================
-col_logo_left, col_logo_center, col_logo_right = st.columns([1, 2, 1])
-with col_logo_center:
-    if NKNRW_LOGO_PATH.is_file():
-        st.image(str(NKNRW_LOGO_PATH), use_container_width=True)
-    else:
-        try:
-            st.image("https://raw.githubusercontent.com/<DEIN_GITHUB_USER>/<DEIN_REPO>/main/NKNRW_Logo.png", use_container_width=True)
-        except Exception:
-            st.markdown("<h2 style='text-align: center;'>NRW-Kommunen</h2>", unsafe_allow_html=True)
+if NKNRW_LOGO_PATH.is_file():
+    st.image(str(NKNRW_LOGO_PATH), width=180)  # Hier die Breite angepasst
+else:
+    try:
+        st.image("https://raw.githubusercontent.com/<DEIN_GITHUB_USER>/<DEIN_REPO>/main/NKNRW_Logo.png", width=180)
+    except Exception:
+        st.markdown("## NRW-Kommunen")
 
 col_map, col_charts = st.columns([1.3, 1])
 
@@ -614,90 +612,75 @@ with col_charts:
             "Mittelstadt",
             "Großstadt",       
         ],
-        "Vorerfahrung": [
-            "Beginner",
-            "First Stepper",
-            "Performer",
-            "Professionals",
-        ],
     }
 
-    tab_content_config = {
-        "Inhaltliche Auswertungen": [
-            ("Angebot", "Angebot"),
-            ("Gemeindegrößenklasse", "Gemeindegrößenklassen"),
-        ],
-        "Organisatorisches & Status": [
-            ("Beschluss NKNRW", "Beschluss NKNRW"),
-            ("Vorerfahrung", "Vorerfahrung"),
-        ],
-    }
+    # Nur noch Angebot und Gemeindegrößenklassen (ohne Tabs)
+    charts_config = [
+        ("Angebot", "Angebot"),
+        ("Gemeindegrößenklasse", "Gemeindegrößenklassen"),
+    ]
 
-    tabs = st.tabs(list(tab_content_config.keys()))
+    for col_name, title in charts_config:
+        st.markdown(f"<div style='font-size: 13px; font-weight: 600; text-align: center; margin-bottom: 2px;'>{title}</div>", unsafe_allow_html=True)
+        
+        target_field_map = {
+            "Angebot": "Info_Angebot",
+        }
+        lookup_key = target_field_map.get(col_name, col_name)
+        
+        extracted_values = []
+        for item in data_by_match_key.values():
+            include_item = False
+            if status_filter == "Alle Einheiten (Bewerber & Historie)":
+                include_item = True
+            elif status_filter == "Nur NKNRW-Bewerber (Teilnahme NKNRW = 1)":
+                include_item = (item.get("Teilnahme NKNRW") == "1")
+            elif status_filter == "Nur Projekthistorie (Projekthistorie id = 1)":
+                include_item = (str(item.get("Projekthistorie id")).strip() == "1")
 
-    for tab_idx, (tab_name, configs) in enumerate(tab_content_config.items()):
-        with tabs[tab_idx]:
-            for col_name, title in configs:
-                st.markdown(f"<div style='font-size: 13px; font-weight: 600; text-align: center; margin-bottom: 2px;'>{title}</div>", unsafe_allow_html=True)
-                
-                target_field_map = {
-                    "Angebot": "Info_Angebot",
-                }
-                lookup_key = target_field_map.get(col_name, col_name)
-                
-                extracted_values = []
-                for item in data_by_match_key.values():
-                    include_item = False
-                    if status_filter == "Alle Einheiten (Bewerber & Historie)":
-                        include_item = True
-                    elif status_filter == "Nur NKNRW-Bewerber (Teilnahme NKNRW = 1)":
-                        include_item = (item.get("Teilnahme NKNRW") == "1")
-                    elif status_filter == "Nur Projekthistorie (Projekthistorie id = 1)":
-                        include_item = (str(item.get("Projekthistorie id")).strip() == "1")
-
-                    if include_item:
-                        if lookup_key == "Info_Angebot":
-                            val_str = item.get(lookup_key, "-")
-                            if val_str and val_str != "-":
-                                parts = [p.strip() for p in val_str.replace("/", "|").split("|") if p.strip() and p.strip() != "-"]
-                                extracted_values.extend(parts)
-                        else:
-                            val_str = item.get(col_name, "-")
-                            if val_str and val_str != "-":
-                                parts = [p.strip() for p in val_str.split(";") if p.strip() and p.strip() != "-"]
-                                extracted_values.extend(parts)
-
-                if extracted_values:
-                    series_split = pd.Series(extracted_values)
-                    counts = series_split.value_counts().reset_index()
-                    counts.columns = [col_name, "Anzahl"]
-
-                    if col_name in sorting_orders:
-                        custom_order = sorting_orders[col_name]
-                        counts[col_name] = pd.Categorical(counts[col_name], categories=custom_order, ordered=True)
-                        counts = counts.sort_values(by=col_name, ascending=False).dropna(subset=[col_name])
-                    else:
-                        counts = counts.sort_values(by="Anzahl", ascending=True)
-
-                    fig = px.bar(
-                        counts,
-                        x="Anzahl",
-                        y=col_name,
-                        orientation="h",
-                        text="Anzahl",
-                        color=col_name,
-                        color_discrete_sequence=px.colors.qualitative.Bold,
-                    )
-                    fig.update_traces(textposition="outside")
-                    fig.update_layout(
-                        showlegend=False,
-                        height=260,
-                        margin=dict(l=0, r=25, t=0, b=0),
-                        xaxis_title="",
-                        yaxis_title="",
-                        xaxis=dict(showticklabels=False, showgrid=False),
-                        yaxis=dict(tickfont=dict(size=10)),
-                    )
-                    st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
+            if include_item:
+                if lookup_key == "Info_Angebot":
+                    val_str = item.get(lookup_key, "-")
+                    if val_str and val_str != "-":
+                        parts = [p.strip() for p in val_str.replace("/", "|").split("|") if p.strip() and p.strip() != "-"]
+                        extracted_values.extend(parts)
                 else:
-                    st.info("Keine Daten")
+                    val_str = item.get(col_name, "-")
+                    if val_str and val_str != "-":
+                        parts = [p.strip() for p in val_str.split(";") if p.strip() and p.strip() != "-"]
+                        extracted_values.extend(parts)
+
+        if extracted_values:
+            series_split = pd.Series(extracted_values)
+            counts = series_split.value_counts().reset_index()
+            counts.columns = [col_name, "Anzahl"]
+
+            if col_name in sorting_orders:
+                custom_order = sorting_orders[col_name]
+                counts[col_name] = pd.Categorical(counts[col_name], categories=custom_order, ordered=True)
+                counts = counts.sort_values(by=col_name, ascending=False).dropna(subset=[col_name])
+            else:
+                counts = counts.sort_values(by="Anzahl", ascending=True)
+
+            fig = px.bar(
+                counts,
+                x="Anzahl",
+                y=col_name,
+                orientation="h",
+                text="Anzahl",
+                color=col_name,
+                color_discrete_sequence=px.colors.qualitative.Bold,
+            )
+            fig.update_traces(textposition="outside")
+            fig.update_layout(
+                showlegend=False,
+                height=290,
+                margin=dict(l=0, r=25, t=0, b=0),
+                xaxis_title="",
+                yaxis_title="",
+                xaxis=dict(showticklabels=False, showgrid=False),
+                yaxis=dict(tickfont=dict(size=10)),
+            )
+            st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
+        else:
+            st.info("Keine Daten")
