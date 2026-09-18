@@ -27,54 +27,33 @@ GITHUB_INDELAND_RAW_URL = "https://raw.githubusercontent.com/<DEIN_GITHUB_USER>/
 GITHUB_LV_RAW_URL = "https://raw.githubusercontent.com/<DEIN_GITHUB_USER>/<DEIN_REPO>/main/landschaftsverband_rheinland.geojson"
 
 # ==============================================================================
-# Custom CSS für vollständige Bildschirm-Ausnutzung (No-Scroll)
+# Custom CSS für optimierte Platznutzung
 # ==============================================================================
 st.markdown("""
     <style>
-    /* Streamlit Standard-Padding minimieren, um Scrollen zu verhindern */
     .block-container {
-        padding-top: 0.5rem !important;
-        padding-bottom: 0rem !important;
-        padding-left: 1rem !important;
-        padding-right: 1rem !important;
+        padding-top: 1rem;
+        padding-bottom: 0rem;
+        padding-left: 1rem;
+        padding-right: 1rem;
         max-width: 100% !important;
-        height: 100vh;
-        overflow: hidden;
     }
-    
-    /* Hauptbereich auf volle verfügbare Höhe setzen */
-    div.stMainBlockContainer {
-        height: calc(100vh - 20px);
-        display: flex;
-        flex-direction: column;
-    }
-
     .map-container {
         position: relative;
         width: 100%;
-        flex-grow: 1;
     }
-
-    /* Floating Overlay auf der Karte */
     .floating-overlay-top-right {
         position: absolute;
-        top: 15px;
-        right: 15px;
+        top: 20px;
+        right: 20px;
         z-index: 99999;
         background: rgba(255, 255, 255, 0.96);
-        padding: 12px 16px;
+        padding: 14px 18px;
         border-radius: 10px;
         box-shadow: 0 4px 20px rgba(0,0,0,0.25);
         border: 1px solid #cbd5e1;
-        width: 270px;
+        width: 280px;
         pointer-events: auto;
-    }
-    
-    /* Scrollbare Auswertungen, falls Diagramme aktiv sind */
-    .charts-scroll-area {
-        max-height: calc(100vh - 60px);
-        overflow-y: auto;
-        padding-right: 5px;
     }
     </style>
 """, unsafe_allow_html=True)
@@ -203,6 +182,7 @@ else:
 
 st.sidebar.markdown("### Filter & Steuerung")
 
+# Standardmäßig auf False gesetzt (ausgeblendet)
 show_charts = st.sidebar.checkbox("📊 Diagramme rechts anzeigen", value=False)
 
 status_filter = st.sidebar.radio(
@@ -526,7 +506,7 @@ def style_fn_gemeinden(feature):
     is_highlighted = (search_kommune != "(Übersicht)" and target_info and target_info.get("Kommune") == search_kommune)
     fill_color = get_kommune_color(target_info)
     is_multi = target_info.get("Is_Multi", False)
-    return {"fillColor": fill_color, "color": "#FFD700" is_highlighted else "#0F2942", "weight": 4.5 if is_highlighted else (2.8 if is_multi else 1.3), "fillOpacity": 0.75}
+    return {"fillColor": fill_color, "color": "#FFD700" if is_highlighted else "#0F2942", "weight": 4.5 if is_highlighted else (2.8 if is_multi else 1.3), "fillOpacity": 0.75}
 
 def highlight_fn_gemeinden(feature):
     return {"fillColor": "#26BDE2", "color": "#0F2942", "weight": 3.5, "fillOpacity": 0.90}
@@ -564,7 +544,7 @@ if geojson_data and geojson_data["features"]:
     folium.GeoJson(geojson_data, name="Gemeinden", style_function=style_fn_gemeinden, highlight_function=highlight_fn_gemeinden, tooltip=create_tooltip()).add_to(m)
 
 # ==============================================================================
-# 7. Responsives Layout (Ausfüllen der vollen Bildschirmhöhe via CSS flexbox)
+# 7. Layout-Aufteilung (Dynamisch & höhere Karte)
 # ==============================================================================
 if show_charts:
     col_map, col_charts = st.columns([1.3, 1])
@@ -622,18 +602,18 @@ with col_map:
         </div>
     """, unsafe_allow_html=True)
 
-    # Höhe auf 100% responsiv über den Viewport (vh) abgestimmt
+    # Kartenhöhe auf 820 Pixel erhöht
     map_output = st_folium(
         m,
         width="100%",
-        height=780,
+        height=820,
         returned_objects=["last_active_drawing"],
     )
     st.markdown('</div>', unsafe_allow_html=True)
 
+# Diagramme nur rendern, wenn die Checkbox aktiv ist (ohne Expander)
 if col_charts is not None:
     with col_charts:
-        st.markdown('<div class="charts-scroll-area">', unsafe_allow_html=True)
         st.markdown("#### Auswertungen")
 
         sorting_orders = {
@@ -652,7 +632,7 @@ if col_charts is not None:
         ]
 
         for col_name, title in charts_config:
-            st.markdown(f"<div style='font-size: 13px; font-weight: 600; text-align: left; margin-top: 5px; margin-bottom: 2px;'>{title}</div>", unsafe_allow_html=True)
+            st.markdown(f"<div style='font-size: 13px; font-weight: 600; text-align: left; margin-top: 10px; margin-bottom: 2px;'>{title}</div>", unsafe_allow_html=True)
             
             target_field_map = {
                 "Angebot": "Info_Angebot",
@@ -705,8 +685,8 @@ if col_charts is not None:
                 fig.update_traces(textposition="outside")
                 fig.update_layout(
                     showlegend=False,
-                    height=250,
-                    margin=dict(l=0, r=25, t=5, b=0),
+                    height=280,
+                    margin=dict(l=0, r=25, t=10, b=0),
                     xaxis_title="",
                     yaxis_title="",
                     xaxis=dict(showticklabels=False, showgrid=False),
@@ -715,4 +695,3 @@ if col_charts is not None:
                 st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
             else:
                 st.info("Keine Daten")
-        st.markdown('</div>', unsafe_allow_html=True)
