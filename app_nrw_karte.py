@@ -14,9 +14,13 @@ DATA_PATH = BASE_DIR / "daten.csv"
 GEOJSON_GEMEINDEN = BASE_DIR / "nrw_gemeinden.geojson"
 GEOJSON_KREISE = BASE_DIR / "nrw_kreise.geojson"
 GEOJSON_GEMEINDEN_BG = BASE_DIR / "nrw_gemeinden_bg.geojson"
+GEOJSON_INDELAND = BASE_DIR / "indeland.geojson"
+GEOJSON_LV = BASE_DIR / "landschaftsverband_rheinland.geojson"
 
 GITHUB_KREISE_RAW_URL = "https://raw.githubusercontent.com/<DEIN_GITHUB_USER>/<DEIN_REPO>/main/nrw_kreise.geojson"
 GITHUB_GEMEINDEN_BG_RAW_URL = "https://raw.githubusercontent.com/<DEIN_GITHUB_USER>/<DEIN_REPO>/main/nrw_gemeinden_bg.geojson"
+GITHUB_INDELAND_RAW_URL = "https://raw.githubusercontent.com/<DEIN_GITHUB_USER>/<DEIN_REPO>/main/indeland.geojson"
+GITHUB_LV_RAW_URL = "https://raw.githubusercontent.com/<DEIN_GITHUB_USER>/<DEIN_REPO>/main/landschaftsverband_rheinland.geojson"
 
 # ==============================================================================
 # Custom CSS für Vollbildkarte & Live-Übersicht (oben rechts)
@@ -291,7 +295,7 @@ for _, row in df.iterrows():
 recorded_keys_set = set(data_by_match_key.keys())
 
 # ==============================================================================
-# 4. GeoJSONs laden & filtern
+# 4. GeoJSONs laden & filtern (inkl. Indeland & Landschaftsverband)
 # ==============================================================================
 @st.cache_data
 def load_base_geojsons():
@@ -301,34 +305,28 @@ def load_base_geojsons():
     with open(GEOJSON_GEMEINDEN, "r", encoding="utf-8") as f:
         gemeinden_data = json.load(f)
 
-    kreise_data = None
-    if GEOJSON_KREISE.is_file():
-        with open(GEOJSON_KREISE, "r", encoding="utf-8") as f:
-            kreise_data = json.load(f)
-    elif "<DEIN_GITHUB_USER>" not in GITHUB_KREISE_RAW_URL:
-        try:
-            resp = requests.get(GITHUB_KREISE_RAW_URL, timeout=10)
-            if resp.status_code == 200:
-                kreise_data = resp.json()
-        except Exception:
-            kreise_data = None
+    def load_optional_json(local_path, url_fallback):
+        if local_path.is_file():
+            with open(local_path, "r", encoding="utf-8") as f:
+                return json.load(f)
+        elif "<DEIN_GITHUB_USER>" not in url_fallback:
+            try:
+                resp = requests.get(url_fallback, timeout=10)
+                if resp.status_code == 200:
+                    return resp.json()
+            except Exception:
+                pass
+        return None
 
-    gemeinden_bg_data = None
-    if GEOJSON_GEMEINDEN_BG.is_file():
-        with open(GEOJSON_GEMEINDEN_BG, "r", encoding="utf-8") as f:
-            gemeinden_bg_data = json.load(f)
-    elif "<DEIN_GITHUB_USER>" not in GITHUB_GEMEINDEN_BG_RAW_URL:
-        try:
-            resp = requests.get(GITHUB_GEMEINDEN_BG_RAW_URL, timeout=10)
-            if resp.status_code == 200:
-                gemeinden_bg_data = resp.json()
-        except Exception:
-            gemeinden_bg_data = None
+    kreise_data = load_optional_json(GEOJSON_KREISE, GITHUB_KREISE_RAW_URL)
+    gemeinden_bg_data = load_optional_json(GEOJSON_GEMEINDEN_BG, GITHUB_GEMEINDEN_BG_RAW_URL)
+    indeland_data = load_optional_json(GEOJSON_INDELAND, GITHUB_INDELAND_RAW_URL)
+    lv_data = load_optional_json(GEOJSON_LV, GITHUB_LV_RAW_URL)
 
-    return gemeinden_data, kreise_data, gemeinden_bg_data
+    return gemeinden_data, kreise_data, gemeinden_bg_data, indeland_data, lv_data
 
 
-base_gemeinden, base_kreise, base_gemeinden_bg = load_base_geojsons()
+base_gemeinden, base_kreise, base_gemeinden_bg, base_indeland, base_lv = load_base_geojsons()
 
 
 def filter_features(geojson_dict, allowed_keys):
@@ -349,6 +347,8 @@ def filter_features(geojson_dict, allowed_keys):
 geojson_data = filter_features(base_gemeinden, recorded_keys_set)
 geojson_kreise = filter_features(base_kreise, recorded_keys_set) if base_kreise else None
 geojson_gemeinden_bg = base_gemeinden_bg
+geojson_indeland = filter_features(base_indeland, recorded_keys_set) if base_indeland else None
+geojson_lv = filter_features(base_lv, recorded_keys_set) if base_lv else None
 
 # ==============================================================================
 # 5. GeoJSON-Properties anreichern
@@ -358,12 +358,16 @@ def enrich_features(features, layer_type="gemeinde"):
         return
     for feat in features:
         props = feat.setdefault("properties", {})
+        default_name = "Landschaftsverband Rheinland" if layer_type == "lv" else "Unbekannt"
         props["GEN"] = clean_val(
-            props.get("GEN") or props.get("name") or props.get("NAME") or props.get("BEZ"), "Unbekannt"
+            props.get("GEN") or props.get("name") or props.get("NAME") or props.get("BEZ"), default_name
         )
         
-        raw_code = str(props.get("AGS") or props.get("ags") or props.get("AGS_0") or "")
-        match_key = "".join(filter(str.isdigit, raw_code)).lstrip("0")
+        if layer_type == "lv":
+            match_key = "5999999"
+        else:
+            raw_code = str(props.get("AGS") or props.get("ags") or props.get("AGS_0") or "")
+            match_key = "".join(filter(str.isdigit, raw_code)).lstrip("0")
             
         props["MATCH_KEY"] = match_key
 
@@ -384,8 +388,12 @@ def enrich_features(features, layer_type="gemeinde"):
 
 if geojson_data:
     enrich_features(geojson_data["features"], layer_type="gemeinde")
+if geojson_indeland:
+    enrich_features(geojson_indeland["features"], layer_type="gemeinde")
 if geojson_kreise:
     enrich_features(geojson_kreise["features"], layer_type="kreis")
+if geojson_lv and geojson_lv.get("features"):
+    enrich_features(geojson_lv["features"], layer_type="lv")
 
 # Such- und Zentrierfunktion
 current_kommune_list = sorted(
@@ -410,7 +418,7 @@ if search_kommune != "(Übersicht)":
     )
     if target_entry:
         target_key = str(target_entry["Row_Data"].get("AGS_MATCH", "")).strip()
-        all_features = (base_kreise.get("features", []) if base_kreise else []) + (geojson_data["features"] if geojson_data else [])
+        all_features = (base_kreise.get("features", []) if base_kreise else []) + (geojson_data["features"] if geojson_data else []) + (geojson_indeland.get("features", []) if geojson_indeland else []) + (geojson_lv.get("features", []) if geojson_lv and geojson_lv.get("features") else [])
         for feat in all_features:
             if feat.get("properties", {}).get("MATCH_KEY") == target_key:
                 geom = feat.get("geometry", {})
@@ -447,6 +455,24 @@ def style_fn_gemeinden_bg(feature):
         "fillColor": "transparent",
         "color": "#000000",
         "weight": 0.5,
+        "fillOpacity": 0.0,
+    }
+
+def style_fn_lv(feature):
+    return {
+        "fillColor": "transparent",
+        "color": "#1e293b",
+        "weight": 2.5,
+        "dashArray": "6, 6",
+        "fillOpacity": 0.0,
+    }
+
+def highlight_fn_lv(feature):
+    return {
+        "fillColor": "transparent",
+        "color": "#0F2942",
+        "weight": 3.5,
+        "dashArray": "6, 6",
         "fillOpacity": 0.0,
     }
 
@@ -562,7 +588,17 @@ if geojson_gemeinden_bg and geojson_gemeinden_bg.get("features"):
         interactive=False,
     ).add_to(m)
 
-# 2. ZWEITER LAYER: Aktive Landkreise aus der Datentabelle
+# 2. ZWEITER LAYER: Landschaftsverband (Unterste Ebene, gestrichelte Outline, transparent)
+if geojson_lv and geojson_lv.get("features"):
+    folium.GeoJson(
+        geojson_lv,
+        name="Landschaftsverband Rheinland",
+        style_function=style_fn_lv,
+        highlight_function=highlight_fn_lv,
+        tooltip=create_tooltip(),
+    ).add_to(m)
+
+# 3. DRITTER LAYER: Aktive Landkreise aus der Datentabelle
 if geojson_kreise and geojson_kreise["features"]:
     folium.GeoJson(
         geojson_kreise,
@@ -572,7 +608,17 @@ if geojson_kreise and geojson_kreise["features"]:
         tooltip=create_tooltip(),
     ).add_to(m)
 
-# 3. DRITTER LAYER: Aktive Gemeinden (Oberster Layer)
+# 4. VIERTER LAYER: Indeland Region
+if geojson_indeland and geojson_indeland.get("features"):
+    folium.GeoJson(
+        geojson_indeland,
+        name="Indeland",
+        style_function=style_fn_gemeinden,
+        highlight_function=highlight_fn_gemeinden,
+        tooltip=create_tooltip(),
+    ).add_to(m)
+
+# 5. FÜNFTER LAYER: Aktive Gemeinden (Oberster Layer)
 if geojson_data and geojson_data["features"]:
     folium.GeoJson(
         geojson_data,
@@ -702,7 +748,6 @@ sorting_orders = {
     ],
 }
 
-# Reduzierte Diagramm-Auswahl (Zentralörtliche Einstufung und Einstiegszeitpunkt entfernt)
 tab_content_config = {
     "Inhaltliche Auswertungen": [
         ("Angebot", "Angebot"),
@@ -717,7 +762,6 @@ tab_content_config = {
 
 tabs = st.tabs(list(tab_content_config.keys()))
 
-# Tabs 1 & 2: Diagramme
 for tab_idx, (tab_name, configs) in enumerate(list(tab_content_config.items())[:2]):
     with tabs[tab_idx]:
         cols = st.columns(len(configs) if len(configs) > 0 else 1)
@@ -788,13 +832,11 @@ for tab_idx, (tab_name, configs) in enumerate(list(tab_content_config.items())[:
                     else:
                         st.info("Keine Daten")
 
-# Tab 3: Interaktiver Zeitplan mit Laufzeiten-Berechnung
 with tabs[2]:
     st.markdown("### 🗓️ Projekt-Zeitplan & Laufzeiten")
-    st.markdown("Hier werden die Starttermine mit den jeweiligen Projektlaufzeiten (**Prozesskette**: 33 Mon., **Bericht**: 6 Mon., **Strategie/Haushalt**: 12 Mon.) kombiniert und als Gantt-Diagramm dargestellt.")
+    st.markdown("Hier werden die Starttermine mit den jeweiligen Projektlaufzeiten kombiniert und als Gantt-Diagramm dargestellt.")
 
     schedule_rows = []
-    
     duration_map = {
         "Vollständige Implementierung der Prozesskette": 33,
         "Entwicklung eines Nachhaltigkeitsberichts": 6,
