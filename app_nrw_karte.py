@@ -418,7 +418,7 @@ current_kommune_list = sorted(
     ))
 )
 search_kommune = st.sidebar.selectbox(
-    "🔍 In Auswahl zentrieren:",
+    "In Auswahl zentrieren:",
     options=["(Übersicht)"] + current_kommune_list,
     index=0,
     key="sb_search_kommune_kreis",
@@ -531,15 +531,26 @@ if geojson_data and geojson_data["features"]:
     folium.GeoJson(geojson_data, name="Gemeinden", style_function=style_fn_gemeinden, highlight_function=highlight_fn_gemeinden, tooltip=create_tooltip()).add_to(m)
 
 # ==============================================================================
-# 7. NKNRW_Logo linksbündig (verkleinert) & Layout-Aufteilung (Karte links, Charts rechts)
+# 7. NKNRW_Logo linksbündig mit sauberem Abstand & Layout-Aufteilung
 # ==============================================================================
+st.markdown("""
+    <style>
+    .logo-container {
+        margin-top: -10px;
+        margin-bottom: 8px;
+    }
+    </style>
+""", unsafe_allow_html=True)
+
+st.markdown('<div class="logo-container">', unsafe_allow_html=True)
 if NKNRW_LOGO_PATH.is_file():
-    st.image(str(NKNRW_LOGO_PATH), width=180)  # Hier die Breite angepasst
+    st.image(str(NKNRW_LOGO_PATH), width=180)
 else:
     try:
         st.image("https://raw.githubusercontent.com/<DEIN_GITHUB_USER>/<DEIN_REPO>/main/NKNRW_Logo.png", width=180)
     except Exception:
         st.markdown("## NRW-Kommunen")
+st.markdown('</div>', unsafe_allow_html=True)
 
 col_map, col_charts = st.columns([1.3, 1])
 
