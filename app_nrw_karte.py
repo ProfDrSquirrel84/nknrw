@@ -27,33 +27,54 @@ GITHUB_INDELAND_RAW_URL = "https://raw.githubusercontent.com/<DEIN_GITHUB_USER>/
 GITHUB_LV_RAW_URL = "https://raw.githubusercontent.com/<DEIN_GITHUB_USER>/<DEIN_REPO>/main/landschaftsverband_rheinland.geojson"
 
 # ==============================================================================
-# Custom CSS für optimierte Platznutzung
+# Custom CSS für vollständige Bildschirm-Ausnutzung (No-Scroll)
 # ==============================================================================
 st.markdown("""
     <style>
+    /* Streamlit Standard-Padding minimieren, um Scrollen zu verhindern */
     .block-container {
-        padding-top: 1rem;
-        padding-bottom: 0rem;
-        padding-left: 1rem;
-        padding-right: 1rem;
+        padding-top: 0.5rem !important;
+        padding-bottom: 0rem !important;
+        padding-left: 1rem !important;
+        padding-right: 1rem !important;
         max-width: 100% !important;
+        height: 100vh;
+        overflow: hidden;
     }
+    
+    /* Hauptbereich auf volle verfügbare Höhe setzen */
+    div.stMainBlockContainer {
+        height: calc(100vh - 20px);
+        display: flex;
+        flex-direction: column;
+    }
+
     .map-container {
         position: relative;
         width: 100%;
+        flex-grow: 1;
     }
+
+    /* Floating Overlay auf der Karte */
     .floating-overlay-top-right {
         position: absolute;
-        top: 20px;
-        right: 20px;
+        top: 15px;
+        right: 15px;
         z-index: 99999;
         background: rgba(255, 255, 255, 0.96);
-        padding: 14px 18px;
+        padding: 12px 16px;
         border-radius: 10px;
         box-shadow: 0 4px 20px rgba(0,0,0,0.25);
         border: 1px solid #cbd5e1;
-        width: 280px;
+        width: 270px;
         pointer-events: auto;
+    }
+    
+    /* Scrollbare Auswertungen, falls Diagramme aktiv sind */
+    .charts-scroll-area {
+        max-height: calc(100vh - 60px);
+        overflow-y: auto;
+        padding-right: 5px;
     }
     </style>
 """, unsafe_allow_html=True)
@@ -182,7 +203,6 @@ else:
 
 st.sidebar.markdown("### Filter & Steuerung")
 
-# Standardmäßig auf False gesetzt (ausgeblendet)
 show_charts = st.sidebar.checkbox("📊 Diagramme rechts anzeigen", value=False)
 
 status_filter = st.sidebar.radio(
@@ -437,79 +457,9 @@ search_kommune = st.sidebar.selectbox(
     key="sb_search_kommune_kreis",
 )
 
+# Startwerte für Center und Zoom
 center_loc = [51.45, 7.50]
 zoom_lvl = 8
-
-if search_kommune != "(Übersicht)":
-    target_entry = next(
-        (v for v in data_by_match_key.values() if v.get("Kommune") == search_kommune),
-        None,
-    )
-    if target_entry:
-        target_key = str(target_entry["Row_Data"].get("AGS_MATCH", "")).strip()
-        all_features = (base_kreise.get("features", []) if base_kreise else []) + (geojson_data["features"] if geojson_data else []) + (geojson_indeland.get("features", []) if geojson_indeland else []) + (geojson_lv.get("features", []) if geojson_lv and geojson_lv.get("features") else [])
-        for feat in all_features:
-            if feat.get("properties", {}).get("MATCH_KEY") == target_key:
-                geom = feat.get("geometry", {})
-                coords = geom.get("coordinates", [])
-                if coords:
-                    poly_pts = coords[0] if geom.get("type") == "Polygon" else coords[0][0]
-                    avg_lat = sum(pt[1] for pt in poly_pts) / len(poly_pts)
-                    avg_lon = sum(pt[0] for pt in poly_pts) / len(poly_pts)
-                    center_loc = [avg_lat, avg_lon]
-                    zoom_lvl = 9 if "kreis" in str(target_entry.get("Typ", "")).lower() else 11
-                break
-
-# ==============================================================================
-# 6. Styling & Karten-Setup
-# ==============================================================================
-def get_kommune_color(target_info):
-    teilnahme = str(target_info.get("Teilnahme NKNRW", "0")).strip()
-    historie = str(target_info.get("Projekthistorie id", "0")).strip()
-    
-    is_applicant = (teilnahme == "1")
-    has_history = (historie == "1")
-    
-    if has_history and is_applicant:
-        return "#c00d0d"
-    elif is_applicant:
-        return "#338398"
-    elif has_history:
-        return "#6f6f6e"
-    else:
-        return "#00689D"
-
-def style_fn_gemeinden_bg(feature):
-    return {"fillColor": "transparent", "color": "#000000", "weight": 0.5, "fillOpacity": 0.0}
-
-def style_fn_lv(feature):
-    return {"fillColor": "transparent", "color": "#1e293b", "weight": 2.5, "dashArray": "6, 6", "fillOpacity": 0.0}
-
-def highlight_fn_lv(feature):
-    return {"fillColor": "transparent", "color": "#0F2942", "weight": 3.5, "dashArray": "6, 6", "fillOpacity": 0.0}
-
-def style_fn_kreise(feature):
-    props = feature.get("properties", {})
-    key = props.get("MATCH_KEY")
-    target_info = data_by_match_key.get(key, {})
-    is_highlighted = (search_kommune != "(Übersicht)" and target_info and target_info.get("Kommune") == search_kommune)
-    fill_color = get_kommune_color(target_info)
-    return {"fillColor": fill_color, "color": "#FFD700" if is_highlighted else "#475569", "weight": 3.5 if is_highlighted else 2.5, "dashArray": "4, 4", "fillOpacity": 0.55}
-
-def highlight_fn_kreise(feature):
-    return {"fillColor": "#26BDE2", "color": "#0F2942", "weight": 3.0, "dashArray": "4, 4", "fillOpacity": 0.70}
-
-def style_fn_gemeinden(feature):
-    props = feature.get("properties", {})
-    key = props.get("MATCH_KEY")
-    target_info = data_by_match_key.get(key, {})
-    is_highlighted = (search_kommune != "(Übersicht)" and target_info and target_info.get("Kommune") == search_kommune)
-    fill_color = get_kommune_color(target_info)
-    is_multi = target_info.get("Is_Multi", False)
-    return {"fillColor": fill_color, "color": "#FFD700" if is_highlighted else "#0F2942", "weight": 4.5 if is_highlighted else (2.8 if is_multi else 1.3), "fillOpacity": 0.75}
-
-def highlight_fn_gemeinden(feature):
-    return {"fillColor": "#26BDE2", "color": "#0F2942", "weight": 3.5, "fillOpacity": 0.90}
 
 m = folium.Map(location=center_loc, zoom_start=zoom_lvl, tiles="OpenStreetMap")
 
@@ -533,18 +483,68 @@ def create_tooltip():
     )
 
 if geojson_gemeinden_bg and geojson_gemeinden_bg.get("features"):
-    folium.GeoJson(geojson_gemeinden_bg, name="Gemeindegrenzen (Hintergrund)", style_function=style_fn_gemeinden_bg, interactive=False).add_to(m)
+    folium.GeoJson(geojson_gemeinden_bg, name="Gemeindegrenzen (Hintergrund)", style_function=style_fn_gemeinden_bg := lambda f: {"fillColor": "transparent", "color": "#000000", "weight": 0.5, "fillOpacity": 0.0}, interactive=False).add_to(m)
 if geojson_lv and geojson_lv.get("features"):
-    folium.GeoJson(geojson_lv, name="Landschaftsverband Rheinland", style_function=style_fn_lv, highlight_function=highlight_fn_lv, tooltip=create_tooltip()).add_to(m)
+    folium.GeoJson(geojson_lv, name="Landschaftsverband Rheinland", style_function=lambda f: {"fillColor": "transparent", "color": "#1e293b", "weight": 2.5, "dashArray": "6, 6", "fillOpacity": 0.0}, highlight_function=lambda f: {"fillColor": "transparent", "color": "#0F2942", "weight": 3.5, "dashArray": "6, 6", "fillOpacity": 0.0}, tooltip=create_tooltip()).add_to(m)
 if geojson_kreise and geojson_kreise["features"]:
-    folium.GeoJson(geojson_kreise, name="Landkreise", style_function=style_fn_kreise, highlight_function=highlight_fn_kreise, tooltip=create_tooltip()).add_to(m)
+    folium.GeoJson(geojson_kreise, name="Landkreise", style_function=lambda f: {"fillColor": "#338398", "color": "#475569", "weight": 2.5, "dashArray": "4, 4", "fillOpacity": 0.55}, highlight_function=lambda f: {"fillColor": "#26BDE2", "color": "#0F2942", "weight": 3.0, "dashArray": "4, 4", "fillOpacity": 0.70}, tooltip=create_tooltip()).add_to(m)
 if geojson_indeland and geojson_indeland.get("features"):
-    folium.GeoJson(geojson_indeland, name="Indeland", style_function=style_fn_gemeinden, highlight_function=highlight_fn_gemeinden, tooltip=create_tooltip()).add_to(m)
+    folium.GeoJson(geojson_indeland, name="Indeland", style_function=lambda f: {"fillColor": "#338398", "color": "#0F2942", "weight": 1.3, "fillOpacity": 0.75}, highlight_function=lambda f: {"fillColor": "#26BDE2", "color": "#0F2942", "weight": 3.5, "fillOpacity": 0.90}, tooltip=create_tooltip()).add_to(m)
 if geojson_data and geojson_data["features"]:
-    folium.GeoJson(geojson_data, name="Gemeinden", style_function=style_fn_gemeinden, highlight_function=highlight_fn_gemeinden, tooltip=create_tooltip()).add_to(m)
+    folium.GeoJson(geojson_data, name="Gemeinden", style_function=lambda f: {"fillColor": "#338398", "color": "#0F2942", "weight": 1.3, "fillOpacity": 0.75}, highlight_function=lambda f: {"fillColor": "#26BDE2", "color": "#0F2942", "weight": 3.5, "fillOpacity": 0.90}, tooltip=create_tooltip()).add_to(m)
+
+# Automatische Zoom-Anpassung (Fit Bounds) für die Übersicht oder zentrierte Kommune
+if search_kommune != "(Übersicht)":
+    target_entry = next(
+        (v for v in data_by_match_key.values() if v.get("Kommune") == search_kommune),
+        None,
+    )
+    if target_entry:
+        target_key = str(target_entry["Row_Data"].get("AGS_MATCH", "")).strip()
+        all_features = (base_kreise.get("features", []) if base_kreise else []) + (geojson_data["features"] if geojson_data else []) + (geojson_indeland.get("features", []) if geojson_indeland else []) + (geojson_lv.get("features", []) if geojson_lv and geojson_lv.get("features") else [])
+        for feat in all_features:
+            if feat.get("properties", {}).get("MATCH_KEY") == target_key:
+                geom = feat.get("geometry", {})
+                coords = geom.get("coordinates", [])
+                if coords:
+                    poly_pts = coords[0] if geom.get("type") == "Polygon" else coords[0][0]
+                    avg_lat = sum(pt[1] for pt in poly_pts) / len(poly_pts)
+                    avg_lon = sum(pt[0] for pt in poly_pts) / len(poly_pts)
+                    m.location = [avg_lat, avg_lon]
+                    m.options['zoom'] = 11 if "kreis" not in str(target_entry.get("Typ", "")).lower() else 9
+                break
+else:
+    # Berechne die Bounding Box aller aktuell gefilterten Features, um perfekt darauf zu zoomen
+    active_features = (geojson_data["features"] if geojson_data else []) + (geojson_kreise["features"] if geojson_kreise else [])
+    min_lat, max_lat = 90, -90
+    min_lon, max_lon = 180, -180
+    has_coords = False
+    
+    for feat in active_features:
+        geom = feat.get("geometry", {})
+        coords = geom.get("coordinates", [])
+        g_type = geom.get("type", "")
+        points = []
+        if g_type == "Polygon":
+            for ring in coords:
+                points.extend(ring)
+        elif g_type == "MultiPolygon":
+            for poly in coords:
+                for ring in poly:
+                    points.extend(ring)
+        for pt in points:
+            lon, lat = pt[0], pt[1]
+            if lat < min_lat: min_lat = lat
+            if lat > max_lat: max_lat = lat
+            if lon < min_lon: min_lon = lon
+            if lon > max_lon: max_lon = lon
+            has_coords = True
+            
+    if has_coords:
+        m.fit_bounds([[min_lat, min_lon], [max_lat, max_lon]])
 
 # ==============================================================================
-# 7. Layout-Aufteilung (Dynamisch & höhere Karte)
+# 7. Responsives Layout (Ausfüllen der vollen Bildschirmhöhe via CSS flexbox)
 # ==============================================================================
 if show_charts:
     col_map, col_charts = st.columns([1.3, 1])
@@ -602,18 +602,17 @@ with col_map:
         </div>
     """, unsafe_allow_html=True)
 
-    # Kartenhöhe auf 820 Pixel erhöht
     map_output = st_folium(
         m,
         width="100%",
-        height=1440,
+        height=780,
         returned_objects=["last_active_drawing"],
     )
     st.markdown('</div>', unsafe_allow_html=True)
 
-# Diagramme nur rendern, wenn die Checkbox aktiv ist (ohne Expander)
 if col_charts is not None:
     with col_charts:
+        st.markdown('<div class="charts-scroll-area">', unsafe_allow_html=True)
         st.markdown("#### Auswertungen")
 
         sorting_orders = {
@@ -632,7 +631,7 @@ if col_charts is not None:
         ]
 
         for col_name, title in charts_config:
-            st.markdown(f"<div style='font-size: 13px; font-weight: 600; text-align: left; margin-top: 10px; margin-bottom: 2px;'>{title}</div>", unsafe_allow_html=True)
+            st.markdown(f"<div style='font-size: 13px; font-weight: 600; text-align: left; margin-top: 5px; margin-bottom: 2px;'>{title}</div>", unsafe_allow_html=True)
             
             target_field_map = {
                 "Angebot": "Info_Angebot",
@@ -685,8 +684,8 @@ if col_charts is not None:
                 fig.update_traces(textposition="outside")
                 fig.update_layout(
                     showlegend=False,
-                    height=280,
-                    margin=dict(l=0, r=25, t=10, b=0),
+                    height=250,
+                    margin=dict(l=0, r=25, t=5, b=0),
                     xaxis_title="",
                     yaxis_title="",
                     xaxis=dict(showticklabels=False, showgrid=False),
@@ -695,3 +694,4 @@ if col_charts is not None:
                 st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
             else:
                 st.info("Keine Daten")
+        st.markdown('</div>', unsafe_allow_html=True)
