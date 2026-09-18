@@ -606,7 +606,7 @@ with col_map:
     map_output = st_folium(
         m,
         width="100%",
-        height=820,
+        height=1280,
         returned_objects=["last_active_drawing"],
     )
     st.markdown('</div>', unsafe_allow_html=True)
